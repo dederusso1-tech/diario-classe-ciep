@@ -1,5 +1,4 @@
 import os
-import re
 from datetime import datetime
 import pandas as pd
 from io import BytesIO
@@ -11,9 +10,9 @@ from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 
-# Configura o banco de dados local estável
+# Banco de dados local blindado dentro do servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_escola.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_persistente.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -55,8 +54,8 @@ HTML_COMPLETO = '''
 
 <nav class="navbar navbar-custom p-3 mb-4">
     <div class="container d-flex justify-content-between">
-        <span class="navbar-brand mb-0 h1 text-white">🍎 Diário de Frequência - CIEP 205</span>
-        <a href="/" class="btn btn-sm btn-outline-light fw-bold">🏠 Voltar ao Início</a>
+        <span class="navbar-brand mb-0 h1 text-white">🍎 Diário de Classe Digital - CIEP 205</span>
+        <a href="/" class="btn btn-sm btn-outline-light fw-bold">🏠 Voltar para as Turmas</a>
     </div>
 </nav>
 
@@ -65,10 +64,10 @@ HTML_COMPLETO = '''
     <div class="row">
         <div class="col-md-5 mb-4">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-primary mb-3">📂 Cadastrar Nova Turma (CSV)</h5>
+                <h5 class="fw-bold text-primary mb-3">📂 Importar Nova Turma (CSV do Sistema)</h5>
                 <form action="/carregar-csv" method="POST" enctype="multipart/form-data">
                     <div class="mb-2">
-                        <label class="form-label small fw-bold">Escola</label>
+                        <label class="form-label small fw-bold">Unidade Escolar</label>
                         <input type="text" name="escola" class="form-control form-control-sm" value="CIEP 205 FREI AGOSTINHO FÍNCIAS" required>
                     </div>
                     <div class="mb-2">
@@ -76,23 +75,23 @@ HTML_COMPLETO = '''
                         <input type="text" name="turma" class="form-control form-control-sm" placeholder="Ex: 1017" required>
                     </div>
                     <div class="mb-2">
-                        <label class="form-label small fw-bold">Disciplina</label>
+                        <label class="form-label small fw-bold">Componente Curricular</label>
                         <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: REDAÇÃO" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o Arquivo CSV da Escola</label>
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Limpar CSV e Salvar Turma</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Processar e Cadastrar Lista</button>
                 </form>
             </div>
         </div>
 
         <div class="col-md-7">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Ativas</h5>
+                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Cadastradas</h5>
                 {% if not turmas %}
-                    <p class="text-muted small">Nenhuma turma carregada nesta sessão. Importe o arquivo CSV ao lado para começar.</p>
+                    <p class="text-muted small">Nenhuma turma ativa armazenada na nuvem. Use o formulário para carregar o CSV.</p>
                 {% else %}
                     <div class="list-group">
                         {% for t in turmas %}
@@ -102,8 +101,8 @@ HTML_COMPLETO = '''
                                     <small class="text-muted">{{ t.escola }}</small>
                                 </div>
                                 <div>
-                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Fazer Chamada</a>
-                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger">🗑️</a>
+                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Chamada Diária</a>
+                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Excluir esta turma?')">🗑️</a>
                                 </div>
                             </div>
                         {% endfor %}
@@ -117,17 +116,17 @@ HTML_COMPLETO = '''
     <div class="card card-custom p-4 bg-white mb-4">
         <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
             <div>
-                <h4 class="fw-bold m-0 text-dark">📋 Diário de Frequência Diária</h4>
-                <small class="text-muted">Turma: {{ turma.nome_turma }} | Matéria: {{ turma.disciplina }}</small>
+                <h4 class="fw-bold m-0 text-dark">📋 Frequência Escolar Diária</h4>
+                <small class="text-muted">Componente: {{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
             </div>
             <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success fw-bold px-4 shadow-sm">
-                📥 Exportar Planilha Excel Limpa
+                📥 Baixar Caderneta Fechada (Excel)
             </a>
         </div>
 
         <form action="/chamada/{{ turma.id }}" method="GET" class="row g-2 align-items-center mb-4 bg-light p-2 rounded">
             <div class="col-auto">
-                <span class="small fw-bold text-secondary">Data do Registro:</span>
+                <span class="small fw-bold text-secondary">Data Letiva:</span>
             </div>
             <div class="col-auto">
                 <input type="date" name="data_filtro" value="{{ data_atual }}" class="form-control form-control-sm" onchange="this.form.submit()">
@@ -140,8 +139,8 @@ HTML_COMPLETO = '''
                 <table class="table table-striped table-bordered align-middle m-0">
                     <thead class="table-dark">
                         <tr>
-                            <th>Nome Completo do Aluno (Filtrado)</th>
-                            <th class="text-center" style="width: 280px;">Presença / Falta</th>
+                            <th>Nome do Aluno</th>
+                            <th class="text-center" style="width: 280px;">Lançamento de Frequência</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -163,7 +162,7 @@ HTML_COMPLETO = '''
                 </table>
             </div>
             <div class="text-end mt-3">
-                <button type="submit" class="btn btn-primary fw-bold px-4">💾 Gravar Chamada</button>
+                <button type="submit" class="btn btn-primary fw-bold px-4">💾 Salvar Chamada deste Dia</button>
             </div>
         </form>
     </div>
@@ -173,19 +172,6 @@ HTML_COMPLETO = '''
 </body>
 </html>
 '''
-
-def limpar_nome_aluno(texto_bruto):
-    """ Remove matrículas, códigos de turmas e símbolos, deixando apenas o nome """
-    texto = str(texto_bruto).upper().strip()
-    # Remove sequências longas de números (como matrículas)
-    texto = re.sub(re.compile(r'\b\d{7,}\b'), '', texto)
-    # Remove códigos comuns de turmas misturados
-    texto = re.sub(re.compile(r'\b\d{4}\b'), '', texto)
-    # Remove caracteres e pontuações perdidas
-    texto = re.sub(re.compile(r'[;\-,.\/|]'), ' ', texto)
-    # Limpa espaços duplos
-    texto = " ".join(texto.split())
-    return texto
 
 @app.route('/')
 def index():
@@ -201,34 +187,42 @@ def carregar_csv():
 
     if file:
         try:
-            # Lê o arquivo independente do separador nativo do sistema escolar
-            try:
-                df = pd.read_csv(file, sep=None, engine='python', encoding='utf-8')
-            except:
-                file.seek(0)
-                df = pd.read_csv(file, sep=None, engine='python', encoding='iso-8859-1')
+            # Lê o arquivo de forma bruta linha por linha
+            linhas_brutas = file.read().decode('utf-8', errors='ignore').splitlines()
+            
+            lista_nomes_limpos = []
+            
+            for linha in linhas_brutas:
+                # Pula metadados da escola e cabeçalhos de colunas do sistema
+                if "CIEP" in linha and "," in linha and "DOUTOR" in linha:
+                    continue
+                if "NUM_CHAMADA" in linha or "NOME_COMPL" in linha:
+                    continue
+                
+                partes = linha.split(',')
+                if len(partes) >= 3:
+                    # No formato do sistema da escola, o nome do aluno é o terceiro campo (índice 2)
+                    nome_candidato = partes[2].strip().upper()
+                    
+                    # Filtro de segurança: ignora alunos cancelados
+                    if "CANCELADO" in linha:
+                        continue
+                        
+                    if nome_candidato and not nome_candidato.isnumeric() and len(nome_candidato) > 4:
+                        lista_nomes_limpos.append(nome_candidato)
 
-            coluna_nome = df.columns[0]
-            for col in df.columns:
-                if 'nome' in str(col).lower() or 'aluno' in str(col).lower():
-                    coluna_nome = col
-                    break
+            if lista_nomes_limpos:
+                nova_turma = Turma(escola=escola, nome_turma=nome_turma, disciplina=disciplina)
+                db.session.add(nova_turma)
+                db.session.commit()
 
-            lista_bruta = df[coluna_nome].dropna().tolist()
-
-            # Cria a estrutura da turma
-            nova_turma = Turma(escola=escola, nome_turma=nome_turma, disciplina=disciplina)
-            db.session.add(nova_turma)
-            db.session.commit()
-
-            for item in lista_bruta:
-                nome_limpo = limpar_nome_aluno(item)
-                if nome_limpo and not nome_limpo.isnumeric():
-                    aluno = Aluno(nome=nome_limpo, turma_id=nova_turma.id)
+                for nome in lista_nomes_limpos:
+                    aluno = Aluno(nome=nome, turma_id=nova_turma.id)
                     db.session.add(aluno)
-            db.session.commit()
+                db.session.commit()
+                
         except Exception as e:
-            print(f"Erro no processamento: {e}")
+            print(f"Erro no processador de CSV: {e}")
 
     return redirect(url_for('index'))
 
@@ -315,57 +309,4 @@ def baixar_excel(turma_id):
     ws.row_dimensions[2].height = 18
 
     headers = ["Nome Completo do Aluno", "Dias Letivos", "Faltas Acumuladas", "Frequência (%)", "Nota 1", "Nota 2", "Média Final"]
-    for col_num, text in enumerate(headers, 1):
-        cell = ws.cell(row=4, column=col_num, value=text)
-        cell.font = fonte_header
-        cell.fill = cor_header
-        cell.alignment = alinhamento_centro
-        cell.border = borda
-    ws.row_dimensions[4].height = 22
-
-    for idx, a in enumerate(alunos):
-        r = 5 + idx
-        fill_linha = cor_zebra if idx % 2 == 0 else PatternFill(fill_type=None)
-
-        datas_gravadas = db.session.query(Presenca.data).join(Aluno).filter(Aluno.turma_id == turma.id).distinct().count()
-        total_dias = max(datas_gravadas, 1)
-        total_faltas = Presenca.query.filter_by(aluno_id=a.id, status='F').count()
-        porcentagem_freq = ((total_dias - total_faltas) / total_dias)
-
-        c_nome = ws.cell(row=r, column=1, value=a.nome)
-        c_dias = ws.cell(row=r, column=2, value=total_dias)
-        c_faltas = ws.cell(row=r, column=3, value=total_faltas)
-        c_freq = ws.cell(row=r, column=4, value=porcentagem_freq)
-        c_freq.number_format = '0%'
-
-        ws.cell(row=r, column=5, value="")
-        ws.cell(row=r, column=6, value="")
-        ws.cell(row=r, column=7, value="")
-
-        c_nome.font = fonte_dados
-        c_nome.alignment = alinhamento_esquerda
-        
-        for c_idx in range(1, 8):
-            cell = ws.cell(row=r, column=c_idx)
-            cell.fill = fill_linha
-            cell.border = borda
-            if c_idx > 1:
-                cell.alignment = alinhamento_centro
-                cell.font = fonte_dados
-        ws.row_dimensions[r].height = 18
-
-    ws.column_dimensions['A'].width = 45
-    for col in ['B', 'C', 'D', 'E', 'F', 'G']:
-        ws.column_dimensions[col].width = 16
-
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True, download_name=f"Diario_Limpo_Turma_{turma.nome_turma}.xlsx")
-
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    for col_num, text
