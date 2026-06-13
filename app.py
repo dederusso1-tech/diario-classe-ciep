@@ -3,16 +3,18 @@ from datetime import datetime
 import pandas as pd
 from io import BytesIO
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 
-# Banco de dados temporário na memória do servidor para guardar as chamadas e alunos
 dados_sistema = {
-    "escola": "CIEP 321",
+    "escola": "CIEP 205 FREI AGOSTINHO FÍNCIAS",
     "turma": "1017",
-    "disciplina": "Redação",
-    "alunos": [],       # Lista de nomes de alunos
-    "frequencia": {}    # Guardará {'data': {aluno_id: 'P' ou 'F'}}
+    "disciplina": "REDAÇÃO",
+    "alunos": [],       
+    "frequencia": {}    
 }
 
 HTML_COMPLETO = '''
@@ -73,7 +75,7 @@ HTML_COMPLETO = '''
             </div>
             
             <a href="/baixar-excel" class="btn btn-success fw-bold px-4 py-2 shadow-sm">
-                📥 Passo 3: Baixar Planilha Excel Atualizada
+                📥 Passo 3: Baixar Planilha Excel Formatada
             </a>
         </div>
 
@@ -135,17 +137,8 @@ def index():
     data_filtro = request.args.get('data_filtro')
     if not data_filtro:
         data_filtro = datetime.today().strftime('%Y-%m-%d')
-        
-    # Busca a chamada daquele dia específico na memória
     frequencia_hoje = dados_sistema["frequencia"].get(data_filtro, {})
-    
-    return render_template_string(
-        HTML_COMPLETO, 
-        info=dados_sistema, 
-        data_atual=data_filtro, 
-        frequencia_hoje=frequencia_hoje,
-        enumerate=enumerate
-    )
+    return render_template_string(HTML_COMPLETO, info=dados_sistema, data_atual=data_filtro, frequencia_hoje=frequencia_hoje, enumerate=enumerate)
 
 @app.route('/carregar-csv', methods=['POST'])
 def carregar_csv():
@@ -176,50 +169,139 @@ def carregar_csv():
                 coluna_nome = df.columns[0]
 
             dados_sistema["alunos"] = df[coluna_nome].dropna().astype(str).str.upper().str.strip().tolist()
-            dados_sistema["frequencia"] = {} # Reseta chamadas anteriores ao carregar nova turma
+            dados_sistema["frequencia"] = {} 
         except Exception as e:
             print(f"Erro ao ler CSV: {e}")
-
     return redirect(url_for('index'))
 
 @app.route('/salvar-chamada', methods=['POST'])
 def salvar_chamada():
     global dados_sistema
     data_chamada = request.form.get('data_chamada')
-    
     if data_chamada not in dados_sistema["frequencia"]:
         dados_sistema["frequencia"][data_chamada] = {}
-        
     for index, _ in enumerate(dados_sistema["alunos"]):
         status = request.form.get(f'status_{index}', 'P')
         dados_sistema["frequencia"][data_chamada][str(index)] = status
-
     return redirect(url_for('index', data_filtro=data_chamada))
 
 @app.route('/baixar-excel')
 def baixar_excel():
-    dados_planilha = []
+    # Inicializa o workbook do openpyxl para controle total do design
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"TURMA {dados_sistema['turma']}"
+    ws.views.sheetView[0].showGridLines = True
+
+    # Cores e Estilos
+    cor_topo = PatternFill(start_color="1A365D", end_color="1A365D", fill_type="solid") # Azul Marinho
+    cor_header = PatternFill(start_color="2B6CB0", end_color="2B6CB0", fill_type="solid") # Azul Médio
+    cor_zebra = PatternFill(start_color="F7FAFC", end_color="F7FAFC", fill_type="solid") # Cinza claro
+    cor_branco = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
     
-    for index, nome in enumerate(dados_sistema["alunos"]):
-        # Conta quantas faltas ('F') este aluno acumulou em todas as datas registradas
-        total_faltas = 0
-        for data, chamadas in dados_sistema["frequencia"].items():
-            if chamadas.get(str(index)) == 'F':
-                total_faltas += 1
-                
-        dados_planilha.append({
-            "Nome Completo do Aluno": nome,
-            "Faltas Acumuladas": total_faltas,
-            "Média Final": 0.0
-        })
+    fonte_titulo = Font(name="Arial", size=14, bold=True, color="FFFFFF")
+    fonte_sub = Font(name="Arial", size=10, italic=True, color="FFFFFF")
+    fonte_header = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+    fonte_dados = Font(name="Arial", size=10)
+    fonte_dados_bold = Font(name="Arial", size=10, bold=True)
+    
+    alinhamento_centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    alinhamento_esquerda = Alignment(horizontal="left", vertical="center")
+    
+    borda_fina = Side(border_style="thin", color="CBD5E0")
+    border_total = Border(left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina)
+
+    # 1. Montagem do Cabeçalho Oficial Escolar
+    ws.merge_cells("A1:G1")
+    ws["A1"] = dados_sistema["escola"]
+    ws["A1"].font = fonte_titulo
+    ws["A1"].fill = cor_topo
+    ws["A1"].alignment = alinhamento_centro
+    ws.row_dimensions[1].height = 30
+
+    ws.merge_cells("A2:G2")
+    ws["A2"] = f"DIÁRIO DE CLASSE - DISCIPLINA: {dados_sistema['disciplina']} | TURMA: {dados_sistema['turma']} | PROFESSOR: ANDRÉ CAMARGO"
+    ws["A2"].font = fonte_sub
+    ws["A2"].fill = cor_topo
+    ws["A2"].alignment = alinhamento_centro
+    ws.row_dimensions[2].height = 20
+
+    # Linha em branco de respiro
+    ws.row_dimensions[3].height = 15
+
+    # 2. Cabeçalho da Tabela de Dados
+    headers = ["Nome Completo do Aluno", "Dias Letivos", "Faltas", "Freq. (%)", "Nota 1", "Nota 2", "Média Final"]
+    for col_num, header_text in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_num, value=header_text)
+        cell.font = fonte_header
+        cell.fill = cor_header
+        cell.alignment = alinhamento_centro
+        cell.border = border_total
+    ws.row_dimensions[4].height = 25
+
+    # 3. Inserção dos Alunos e Regras de Negócio
+    total_dias_letivos = max(len(dados_sistema["frequencia"]), 1)
+    row_start = 5
+
+    for idx, nome in enumerate(dados_sistema["alunos"]):
+        current_row = row_start + idx
+        fill_atual = cor_zebra if idx % 2 == 0 else cor_branco
         
-    df = pd.DataFrame(dados_planilha)
+        # Conta faltas salvas
+        faltas_aluno = 0
+        for data, chamadas in dados_sistema["frequencia"].items():
+            if chamadas.get(str(idx)) == 'F':
+                faltas_aluno += 1
+
+        # Escreve os valores nas células
+        c_nome = ws.cell(row=current_row, column=1, value=nome)
+        c_dias = ws.cell(row=current_row, column=2, value=total_dias_letivos)
+        c_faltas = ws.cell(row=current_row, column=3, value=faltas_aluno)
+        
+        # Fórmula da Frequência: =((Dias Letivos - Faltas) / Dias Letivos)
+        c_freq = ws.cell(row=current_row, column=4, value=f"=({total_dias_letivos}-C{current_row})/{total_dias_letivos}")
+        c_freq.number_format = '0.0%'
+        
+        # Campos vazios para o professor preencher notas futuramente
+        c_n1 = ws.cell(row=current_row, column=5, value="")
+        c_n2 = ws.cell(row=current_row, column=6, value="")
+        
+        # Fórmula da Média Final: =MÉDIA(Nota1; Nota2)
+        c_media = ws.cell(row=current_row, column=7, value=f"=AVERAGE(E{current_row}:F{current_row})")
+        c_media.number_format = '0.0'
+
+        # Formatação de Estilos das Linhas
+        c_nome.alignment = alinhamento_esquerda
+        c_nome.font = fonte_dados_bold
+        
+        for col_idx in range(1, 8):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.fill = fill_atual
+            cell.border = border_total
+            if col_idx > 1:
+                cell.alignment = alinhamento_centro
+                cell.font = fonte_dados
+        
+        ws.row_dimensions[current_row].height = 20
+
+    # 4. Ajuste Automático de Largura das Colunas para não cortar os nomes
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row > 2 and cell.value: # Ignora o título mesclado para o cálculo do tamanho
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+    
+    # Ajuste fixo especial para a coluna de Nomes
+    ws.column_dimensions['A'].width = 45
+
+    # Envio do arquivo formatado
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name=f'TURMA_{dados_sistema["turma"]}')
+    wb.save(output)
     output.seek(0)
     
-    nome_arquivo = f"Diario_{dados_sistema['escola']}_Turma_{dados_sistema['turma']}.xlsx".replace(" ", "_")
+    nome_arquivo = f"Diario_Formatado_{dados_sistema['turma']}.xlsx"
     return send_file(
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
