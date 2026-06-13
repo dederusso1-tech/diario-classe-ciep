@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from io import BytesIO
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
@@ -9,9 +10,9 @@ from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 
-# Banco de dados blindado na nuvem do Render
+# Banco de dados local blindado dentro do servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep205.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_final.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -78,87 +79,14 @@ HTML_COMPLETO = '''
                         <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: LÍNGUA PORTUGUESA" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Bagunçado</label>
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Em Linha Única</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Filtrar Sistema e Criar Lista</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Fatiar CSV e Criar Lista</button>
                 </form>
             </div>
         </div>
 
         <div class="col-md-7">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Salvas na Nuvem</h5>
-                {% if not turmas %}
-                    <p class="text-muted small">Nenhuma turma processada ainda. Faça o upload do arquivo ao lado.</p>
-                {% else %}
-                    <div class="list-group">
-                        {% for t in turmas %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center mb-2 rounded border">
-                                <div>
-                                    <h6 class="fw-bold m-0">Turma {{ t.nome_turma }} - {{ t.disciplina }}</h6>
-                                    <small class="text-muted">{{ t.escola }}</small>
-                                </div>
-                                <div>
-                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Chamada</a>
-                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Apagar esta turma permanentemente?')">🗑️</a>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    {% elif tela == 'chamada' %}
-    <div class="card card-custom p-4 bg-white mb-4">
-        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
-            <div>
-                <h4 class="fw-bold m-0 text-dark">📋 Frequência Diária Cadastrada</h4>
-                <small class="text-muted">Turma: {{ turma.nome_turma }} | Matéria: {{ turma.disciplina }}</small>
-            </div>
-            <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success fw-bold px-4 shadow-sm">
-                📥 Exportar Diário de Faltas (Excel)
-            </a>
-        </div>
-
-        <form action="/chamada/{{ turma.id }}" method="GET" class="row g-2 align-items-center mb-4 bg-light p-2 rounded">
-            <div class="col-auto">
-                <span class="small fw-bold text-secondary">Data Letiva:</span>
-            </div>
-            <div class="col-auto">
-                <input type="date" name="data_filtro" value="{{ data_atual }}" class="form-control form-control-sm" onchange="this.form.submit()">
-            </div>
-        </form>
-
-        <form action="/salvar-chamada/{{ turma.id }}" method="POST">
-            <input type="hidden" name="data_chamada" value="{{ data_atual }}">
-            <div class="table-responsive">
-                <table class="table table-striped table-bordered align-middle m-0">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Nome Completo do Aluno (Apenas Ativos)</th>
-                            <th class="text-center" style="width: 280px;">Presença / Falta</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for aluno in alunos_info %}
-                        <tr>
-                            <td class="ps-3"><strong>{{ aluno.nome }}</strong></td>
-                            <td class="text-center">
-                                <div class="btn-group" role="group">
-                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="p_{{ aluno.id }}" value="P" {% if aluno.status_hoje == 'P' %}checked{% endif %}>
-                                    <label class="btn btn-sm btn-outline-success px-3 fw-bold" for="p_{{ aluno.id }}">P (Presença)</label>
-
-                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="f_{{ aluno.id }}" value="F" {% if aluno.status_hoje == 'F' %}checked{% endif %}>
-                                    <label class="btn btn-sm btn-outline-danger px-3 fw-bold" for="f_{{ aluno.id }}">F (Falta)</label>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="text-end mt-3">
-                <button type="submit" class="btn btn-primary fw-bold px-4">
+                <h5 class="fw-bold text-success mb-3">📚 Suas Tur
