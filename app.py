@@ -5,12 +5,17 @@ from flask import Flask, render_template_string, send_file, request, redirect, u
 
 app = Flask(__name__)
 
-# Banco de dados temporário na memória do servidor
-banco_dados = {
-    "professores": {},  # Guardará {usuario: senha}
-    "diarios": {}       # Guardará {id_diario: {turma, disciplina, alunos}}
-}
-id_diario_control = 1
+# Lista Oficial de Alunos da Turma 1017 (Sem precisar digitar!)
+ALUNOS_PADRAO = [
+    "DAVI DOS SANTOS DE FREITAS LOPES PIMENTA",
+    "EDUARDA FERREIRA AZEREDO",
+    "ELIAS VANDO DO NASCIMENTO SILVA",
+    "ISABELLE REJANE SOARES RÊGO",
+    "ISABELY LUARA RODRIGUES",
+    "ISADORA LETÍCIA DA SILVA MARTINS",
+    "KAIO DE ABREU CAMARGO",
+    "KAUÃ JIHAD FACCINI SANT'ANA DA SILVA"
+]
 
 HTML_SISTEMA = '''
 <!DOCTYPE html>
@@ -30,130 +35,42 @@ HTML_SISTEMA = '''
 <nav class="navbar navbar-custom p-3 mb-4">
     <div class="container d-flex justify-content-between">
         <span class="navbar-brand mb-0 h1 text-white">🍎 Portal do Docente - CIEP</span>
-        {% if professor_atual %}
-            <span class="text-white-50">Professor: <strong>{{ professor_atual }}</strong> | <a href="/" class="text-warning text-decoration-none">Sair</a></span>
-        {% endif %}
+        <span class="text-white-50">Ambiente de Produção</span>
     </div>
 </nav>
 
 <div class="container">
-    {% if tela == 'cadastro' %}
-    <div class="row justify-content-center">
-        <div class="col-md-5">
-            <div class="card card-custom p-4 bg-white">
-                <h4 class="fw-bold text-center text-dark mb-4">🔐 Acesso ao Sistema</h4>
-                
-                <form action="/login-cadastro" method="POST">
-                    <div class="mb-3">
-                        <label class="form-label">Usuário / E-mail</label>
-                        <input type="text" name="usuario" class="form-control" required placeholder="ex: andre.brito">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Senha</label>
-                        <input type="password" name="senha" class="form-control" required placeholder="Sua senha">
-                    </div>
-                    <div class="d-grid gap-2">
-                        <button type="submit" name="acao" value="login" class="btn btn-primary fw-bold">Entrar no Sistema</button>
-                        <button type="submit" name="acao" value="cadastro" class="btn btn-success fw-bold">Criar Nova Conta de Professor</button>
-                    </div>
-                </form>
-                {% if msg %}
-                    <div class="alert alert-info mt-3 text-center py-2 small">{{ msg }}</div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    {% elif tela == 'dashboard' %}
-    <div class="row">
-        <div class="col-md-4 mb-4">
-            <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold mb-3">🆕 Criar Novo Diário</h5>
-                <form action="/criar-diario" method="POST">
-                    <input type="hidden" name="professor" value="{{ professor_atual }}">
-                    <div class="mb-3">
-                        <label class="form-label">Número da Turma</label>
-                        <input type="text" name="turma" class="form-control" required placeholder="Ex: 1017">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Disciplina</label>
-                        <input type="text" name="disciplina" class="form-control" required placeholder="Ex: Redação">
-                    </div>
-                    <button type="submit" class="btn btn-success w-100 fw-bold">+ Inicializar Diário</button>
-                </form>
-            </div>
-        </div>
-        
-        <div class="col-md-8">
-            <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold mb-3">📚 Meus Diários Ativos</h5>
-                {% if n_diarios == 0 %}
-                    <p class="text-muted">Você ainda não criou nenhum diário. Use o formulário ao lado para começar!</p>
-                {% else %}
-                    <div class="list-group">
-                        {% for id, info in diarios.items() %}
-                            <a href="/diario/{{ id }}?usuario={{ professor_atual }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="fw-bold mb-1">Turma {{ info.turma }}</h6>
-                                    <small class="text-muted">Disciplina: {{ info.disciplina }}</small>
-                                </div>
-                                <span class="badge bg-primary rounded-pill">Abrir Diário →</span>
-                            </a>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    {% elif tela == 'ver_diario' %}
     <div class="card card-custom p-4 bg-white mb-4">
-        <p class="text-muted small"><a href="/painel?usuario={{ professor_atual }}" class="text-decoration-none">← Voltar para o Painel</a></p>
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
-                <h3 class="fw-bold m-0">Turma {{ diario_info.turma }}</h3>
-                <span class="text-muted">Matéria: {{ diario_info.disciplina }}</span>
+                <h3 class="fw-bold m-0">📊 Diário Eletrônico - Turma 1017</h3>
+                <span class="text-muted">Disciplina: Redação | Escola: CIEP 321</span>
             </div>
-            <a href="/exportar-excel/{{ id_diario }}" class="btn btn-success fw-bold px-4 py-2 shadow-sm">
-                📥 Baixar Planilha Excel
+            <a href="/exportar-excel" class="btn btn-success fw-bold px-4 py-2 shadow-sm">
+                📥 Baixar Planilha Excel (Diário)
             </a>
         </div>
 
-        <h5 class="fw-bold mb-3 text-secondary">📋 Alunos Cadastrados</h5>
-        <form action="/adicionar-aluno/{{ id_diario }}" method="POST" class="row g-3 mb-4">
-            <input type="hidden" name="professor" value="{{ professor_atual }}">
-            <div class="col-md-9">
-                <input type="text" name="nome_aluno" class="form-control" required placeholder="Digite o nome completo do aluno">
-            </div>
-            <div class="col-md-3">
-                <button type="submit" class="btn btn-primary w-100 fw-bold">+ Matricular</button>
-            </div>
-        </form>
-
+        <h5 class="fw-bold mb-3 text-secondary">📋 Lista de Alunos Carregada Automatizada</h5>
         <div class="table-responsive">
-            <table class="table table-striped align-middle">
-                <thead>
+            <table class="table table-striped table-bordered align-middle">
+                <thead class="table-dark">
                     <tr>
-                        <th>Nome Completo</th>
+                        <th>Nome Completo do Aluno</th>
                         <th class="text-center" style="width: 150px;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for aluno in diario_info.alunos %}
+                    {% for aluno in alunos %}
                     <tr>
                         <td><strong>{{ aluno }}</strong></td>
-                        <td class="text-center"><span class="badge bg-success">Ativo</span></td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="2" class="text-muted text-center py-3">Nenhum aluno matriculado ainda. Digite acima para adicionar.</td>
+                        <td class="text-center"><span class="badge bg-success">Matriculado</span></td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
-    {% endif %}
 </div>
 
 </body>
@@ -162,12 +79,35 @@ HTML_SISTEMA = '''
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_SISTEMA, tela='cadastro', msg=None, professor_atual=None)
+    # Carrega a página direto com a lista de alunos e o botão de baixar
+    return render_template_string(HTML_SISTEMA, alunos=ALUNOS_PADRAO)
 
-@app.route('/login-cadastro', methods=['POST'])
-def login_cadastro():
-    usuario = request.form.get('usuario').strip()
-    senha = request.form.get('senha').strip()
-    acao = request.form.get('acao')
+@app.route('/exportar-excel')
+def exportar_excel():
+    # Gera o arquivo Excel instantaneamente com as colunas certas
+    dados_planilha = []
+    for aluno in ALUNOS_PADRAO:
+        dados_planilha.append({
+            "Nome Completo": aluno,
+            "Falta Semanal": 0,
+            "Nota P1": 0.0,
+            "Nota P2": 0.0,
+            "Média Final": 0.0
+        })
+        
+    df = pd.DataFrame(dados_planilha)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='TURMA_1017')
+    output.seek(0)
     
-    if not usuario or not
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='Diario_Online_Turma_1017.xlsx'
+    )
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
