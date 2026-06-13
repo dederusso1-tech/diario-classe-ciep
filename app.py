@@ -54,7 +54,7 @@ HTML_SISTEMA = '''
                     </div>
                     <div class="d-grid gap-2">
                         <button type="submit" name="acao" value="login" class="btn btn-primary fw-bold">Entrar no Sistema</button>
-                        <button type="submit" name="acao" value="cadastro" class="btn btn-outline-secondary btn-sm">Criar Nova Conta de Professor</button>
+                        <button type="submit" name="acao" value="cadastro" class="btn btn-success fw-bold">Criar Nova Conta de Professor</button>
                     </div>
                 </form>
                 {% if msg %}
@@ -170,75 +170,4 @@ def login_cadastro():
     senha = request.form.get('senha').strip()
     acao = request.form.get('acao')
     
-    if not usuario or not senha:
-        return render_template_string(HTML_SISTEMA, tela='cadastro', msg="Preencha todos os campos!", professor_atual=None)
-        
-    if acao == 'cadastro':
-        if usuario in banco_dados["professores"]:
-            return render_template_string(HTML_SISTEMA, tela='cadastro', msg="Usuário já cadastrado!", professor_atual=None)
-        banco_dados["professores"][usuario] = senha
-        return render_template_string(HTML_SISTEMA, tela='cadastro', msg="Conta criada com sucesso! Faça seu login.", professor_atual=None)
-        
-    elif acao == 'login':
-        if usuario in banco_dados["professores"] and banco_dados["professores"][usuario] == senha:
-            return redirect(url_for('painel', usuario=usuario))
-        return render_template_string(HTML_SISTEMA, tela='cadastro', msg="Usuário ou senha incorretos.", professor_atual=None)
-
-@app.route('/painel')
-def painel():
-    usuario = request.args.get('usuario')
-    diarios_professor = {k: v for k, v in banco_dados["diarios"].items() if v["professor"] == usuario}
-    return render_template_string(
-        HTML_SISTEMA, 
-        tela='dashboard', 
-        professor_atual=usuario, 
-        diarios=diarios_professor, 
-        n_diarios=len(diarios_professor)
-    )
-
-@app.route('/criar-diario', methods=['POST'])
-def criar_diario():
-    global id_diario_control
-    professor = request.form.get('professor')
-    turma = request.form.get('turma')
-    disciplina = request.form.get('disciplina')
-    
-    banco_dados["diarios"][str(id_diario_control)] = {
-        "professor": professor,
-        "turma": turma,
-        "disciplina": disciplina,
-        "alunos": []
-    }
-    id_diario_control += 1
-    return redirect(url_for('painel', usuario=professor))
-
-@app.route('/diario/<id_diario>')
-def ver_diario(id_diario):
-    diario_info = banco_dados["diarios"].get(id_diario)
-    return render_template_string(
-        HTML_SISTEMA, 
-        tela='ver_diario', 
-        professor_atual=diario_info["professor"], 
-        diario_info=diario_info, 
-        id_diario=id_diario
-    )
-
-@app.route('/adicionar-aluno/<id_diario>', methods=['POST'])
-def adicionar_aluno(id_diario):
-    professor = request.form.get('professor')
-    nome_aluno = request.form.get('nome_aluno').upper().strip()
-    if nome_aluno:
-        banco_dados["diarios"][id_diario]["alunos"].append(nome_aluno)
-    return redirect(url_for('ver_diario', id_diario=id_diario, usuario=professor))
-
-@app.route('/exportar-excel/<id_diario>')
-def exportar_excel(id_diario):
-    diario_info = banco_dados["diarios"].get(id_diario)
-    alunos = diario_info["alunos"]
-    
-    dados_planilha = []
-    for aluno in alunos:
-        dados_planilha.append({"Nome Completo": aluno, "Faltas": 0, "Média": 0.0})
-        
-    if not dados_planilha:
-        dados_planilha
+    if not usuario or not
