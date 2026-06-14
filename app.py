@@ -8,9 +8,9 @@ import openpyxl
 
 app = Flask(__name__)
 
-# Banco de dados estável para o ambiente do Render
+# Banco de dados local estável no servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_limpo_v2.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_celulas.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -37,7 +37,7 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
-# --- INTERFACE HTML LIMPA E ESPAÇADA ---
+# --- INTERFACE HTML ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -83,7 +83,7 @@ HTML_COMPLETO = '''
                         <label class="form-label small fw-bold">Selecione o Arquivo CSV do Sistema</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Remover Sujeira e Alinhar Colunas</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Alinhar a partir da Linha 6</button>
                 </form>
             </div>
         </div>
@@ -112,59 +112,10 @@ HTML_COMPLETO = '''
     <div class="card card-custom p-4 bg-white mb-4">
         <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
             <div>
-                <h4 class="fw-bold m-0 text-dark">📋 Lista de Chamada Limpa e Alinhada</h4>
+                <h4 class="fw-bold m-0 text-dark">📋 Lista de Chamada Alinhada</h4>
                 <small class="text-muted">{{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
             </div>
             <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success btn-sm fw-bold px-4 shadow-sm">📥 Exportar para Excel</a>
         </div>
         <form action="/salvar-chamada/{{ turma.id }}" method="POST">
-            <input type="hidden" name="data_chamada" value="{{ data_atual }}">
-            <div class="table-responsive">
-                <table class="table table-striped table-bordered align-middle m-0 table-sm">
-                    <thead>
-                        <tr>
-                            <th class="text-center" style="width: 60px;">Nº</th>
-                            <th style="width: 160px;">Matrícula</th>
-                            <th>Nome Completo do Aluno</th>
-                            <th class="text-center" style="width: 140px;">Situação</th>
-                            <th class="text-center" style="width: 150px;">Frequência de Hoje</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for aluno in alunos_info %}
-                        <tr>
-                            <td class="text-center text-muted small">{{ aluno.num_chamada }}</td>
-                            <td class="text-secondary small"><code>{{ aluno.matricula }}</code></td>
-                            <td><span class="text-dark fw-semibold">{{ aluno.nome }}</span></td>
-                            <td class="text-center"><span class="badge bg-success text-white small px-2">{{ aluno.situacao }}</span></td>
-                            <td class="text-center">
-                                <div class="btn-group">
-                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="p_{{ aluno.id }}" value="P" {% if aluno.status_hoje == 'P' %}checked{% endif %}>
-                                    <label class="btn btn-xs btn-outline-success px-2 fw-bold" for="p_{{ aluno.id }}">P</label>
-                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="f_{{ aluno.id }}" value="F" {% if aluno.status_hoje == 'F' %}checked{% endif %}>
-                                    <label class="btn btn-xs btn-outline-danger px-2 fw-bold" for="f_{{ aluno.id }}">F</label>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <button type="submit" class="btn btn-primary fw-bold px-4 mt-3">💾 Gravar Chamada</button>
-        </form>
-    </div>
-    {% endif %}
-</div>
-</body>
-</html>
-'''
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_COMPLETO, tela='inicial', turmas=Turma.query.all())
-
-@app.route('/carregar-csv', methods=['POST'])
-def carregar_csv():
-    escola = request.form.get('escola').strip().upper()
-    nome_turma = request.form.get('turma').strip().upper()
-    disciplina
+            <input
