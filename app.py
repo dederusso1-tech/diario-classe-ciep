@@ -1,5 +1,5 @@
 import os
-import csv
+import re
 from datetime import datetime
 from io import BytesIO
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
@@ -8,9 +8,9 @@ import openpyxl
 
 app = Flask(__name__)
 
-# Banco de dados local estável no servidor do Render
+# Banco de dados blindado e isolado no Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_limpeza_extrema.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_blindado.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -37,7 +37,7 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
-# --- INTERFACE HTML VISUAL COM COLUNAS ALINHADAS ---
+# --- INTERFACE HTML ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -65,21 +65,21 @@ HTML_COMPLETO = '''
     <div class="row">
         <div class="col-md-5 mb-4">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-primary mb-3">📂 Carregar Diário Trimestral (CSV)</h5>
+                <h5 class="fw-bold text-primary mb-3">📂 Carregar Diário Oficial (CSV)</h5>
                 <form action="/carregar-csv" method="POST" enctype="multipart/form-data">
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Original</label>
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Expurgar Cabeçalhos e Alinhar</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Varredura Inteligente e Alinhar</button>
                 </form>
             </div>
         </div>
         <div class="col-md-7">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Ativas</h5>
+                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Salvas na Nuvem</h5>
                 {% if not turmas %}
-                    <p class="text-muted small">Nenhuma turma processada ainda.</p>
+                    <p class="text-muted small">Nenhuma turma cadastrada ainda.</p>
                 {% else %}
                     <div class="list-group">
                         {% for t in turmas %}
@@ -159,56 +159,66 @@ def carregar_csv():
     file = request.files.get('arquivo_csv')
     if file:
         try:
-            conteudo_linhas = file.read().decode('utf-8', errors='ignore').splitlines()
+            texto_bruto = file.read().decode('utf-8', errors='ignore')
+            # Força a quebra correta independente de quebra de linha do Windows ou Linux
+            linhas = texto_bruto.replace('\r', '\n').split('\n')
             
-            # Detecta de forma inteligente o separador real (, ou ;)
-            amostra = "".join(conteudo_linhas[:4])
-            separador = ';' if ';' in amostra else ','
-
-            leitor = csv.reader(conteudo_linhas, delimiter=separador, quotechar='"')
-            linhas_lista = list(leitor)
+            escola_auto = "CIEP 321 DOUTOR ULYSSES GUIMARAES"
+            turma_auto = "1017"
+            disciplina_auto = "LINGUAGEM E MOVIMENTO"
             
-            # Puxa os dados da escola e da matéria diretamente da linha fixa de cabeçalho
-            linha_meta = linhas_lista[1]
-            escola_auto = str(linha_meta[0]).strip().upper()
-            
-            # Extrai o código numérico limpo da turma
-            turma_bruta = str(linha_meta[4]).strip().upper()
-            turma_auto = "1017" if "1017" in turma_bruta else "S/T"
-            
-            disciplina_auto = str(linha_meta[6]).strip().upper()
+            # Tenta pegar os cabeçalhos reais das primeiras linhas de metadados de forma segura
+            for l in linhas[:5]:
+                if "CIEP" in l and "ANDRE" in l:
+                    partes = [p.replace('"', '').strip() for p in l.split(',')]
+                    if len(partes) >= 7:
+                        escola_auto = partes[0]
+                        disciplina_auto = partes[6]
 
             nova_turma = Turma(escola=escola_auto, nome_turma=turma_auto, disciplina=disciplina_auto)
             db.session.add(nova_turma)
             db.session.commit()
 
-            for row in linhas_lista:
-                if len(row) >= 5:
-                    num_chamada = str(row[0]).strip()
-                    matricula = str(row[1]).strip()
-                    nome = str(row[3]).strip().upper()
-                    situacao = str(row[4]).strip().upper()
+            contador_chamada = 1
 
-                    # BLOQUEIO ABSOLUTO: Descarta metadados duplicados e alunos "Cancelado"
-                    if "ANDRE CAMARGO" in nome or "CIEP" in nome or "NUM_CHAMADA" in nome or "TEXTBOX" in nome:
-                        continue
-                        
-                    if situacao == "MATRICULADO" and num_chamada.isdigit():
+            for linha in linhas:
+                # Segurança máxima: descarta o lixo estrutural e os cancelados
+                if "NUM_CHAMADA" in linha or "ANDRE CAMARGO" in linha or "CANCELADO" in linha or "Cancelado" in linha:
+                    continue
+                
+                if "MATRICULADO" in linha or "Matriculado" in linha:
+                    # Limpa as aspas e quebra o texto por vírgulas ou pontos-e-vírgulas
+                    linha_limpa = linha.replace('"', '')
+                    partes = [p.strip() for p in re.split(r'[;,]', linha_limpa) if p.strip()]
+                    
+                    matricula = ""
+                    nome = ""
+                    
+                    # Procura de forma inteligente o número longo (Matrícula) e o texto longo (Nome)
+                    for p in partes:
+                        if p.isdigit() and len(p) >= 10:
+                            matricula = p
+                        elif len(p) > 8 and not any(c.isdigit() for c in p) and "MATRICULADO" not in p.upper() and "TRIMESTRE" not in p.upper():
+                            nome = p.upper()
+                    
+                    if nome and matricula:
                         db.session.add(Aluno(
-                            num_chamada=num_chamada,
+                            num_chamada=str(contador_chamada),
                             matricula=matricula,
                             nome=nome,
                             situacao="MATRICULADO",
                             turma_id=nova_turma.id
                         ))
+                        contador_chamada += 1
+                        
             db.session.commit()
         except Exception as e:
-            print(f"Erro na limpeza cirúrgica: {e}")
+            print(f"Erro na varredura regex: {e}")
             
     return redirect(url_for('index'))
 
 @app.route('/chamada/<int:turma_id>')
-def chamada(turma_id):
+def llamada(turma_id):
     turma = Turma.query.get_or_404(turma_id)
     data_filtro = datetime.today().strftime('%Y-%m-%d')
     alunos = Aluno.query.filter_by(turma_id=turma.id).all()
