@@ -1,7 +1,7 @@
 import os
-import re
 from datetime import datetime
 from io import BytesIO
+import pandas as pd
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 import openpyxl
@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 # Banco de dados local estável no servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_limpeza_total.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_oficial.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -37,7 +37,7 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
-# --- INTERFACE HTML VISUAL ---
+# --- INTERFACE HTML ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -79,10 +79,10 @@ HTML_COMPLETO = '''
                         <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: AS LINGUAGENS NA TECNOLOGIA" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Em Linha Única</label>
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Oficial</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Faxina Geral e Limpar Lista</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Processar e Limpar Lista</button>
                 </form>
             </div>
         </div>
@@ -122,9 +122,9 @@ HTML_COMPLETO = '''
                 <table class="table table-striped table-bordered align-middle m-0 table-sm">
                     <thead>
                         <tr>
-                            <th class="ps-2">Matrícula</th>
+                            <th class="ps-2" style="width: 180px;">Matrícula</th>
                             <th>Nome Completo do Aluno</th>
-                            <th class="text-center">Situação</th>
+                            <th class="text-center" style="width: 150px;">Situação</th>
                             <th class="text-center" style="width: 180px;">Frequência de Hoje</th>
                         </tr>
                     </thead>
@@ -169,44 +169,31 @@ def carregar_csv():
 
     if file:
         try:
-            conteudo = file.read().decode('utf-8', errors='ignore').strip()
+            # Força o pandas a pular as 3 linhas de metadados do professor/escola
+            df = pd.read_csv(file, skiprows=3, sep=',', encoding='utf-8')
             
-            # Divide o bloco contínuo localizando o padrão de matrículas do estado (números longos)
-            blocos = re.split(r'(?=2024\d{11}|2025\d{11}|2026\d{11})', conteudo)
+            # Limpa o nome das colunas removendo espaços
+            df.columns = [c.strip() for c in df.columns]
             
-            nova_turma = Turma(escola=escola, nome_turma=nome_turma, disciplina=disciplina)
-            db.session.add(nova_turma)
-            db.session.commit()
-
-            lista_nomes_inseridos = set()
-
-            for bloco in blocos:
-                bloco = bloco.strip()
+            # Filtro master: Joga fora na hora quem está CANCELADO
+            df_ativos = df[df['SIT_MATRICULA'].str.strip().str.upper() == 'MATRICULADO']
+            
+            if not df_ativos.empty:
+                nova_turma = Turma(escola=escola, nome_turma=nome_turma, disciplina=disciplina)
+                db.session.add(nova_turma)
+                db.session.commit()
                 
-                # SUPER FILTRO: Ignora metadados do professor, cabeçalhos repetidos e alunos cancelados
-                if "ANDRE CAMARGO" in bloco or "CIEP 205" in bloco or "NUM_CHAMADA" in bloco or "TEXTBOX" in bloco or "CANCELADO" in bloco:
-                    continue
+                for _, row in df_ativos.iterrows():
+                    # No layout do seu arquivo, NOME_COMPL guarda o número de matrícula e SIT_MATRICULA guarda o nome
+                    mat = str(row['NOME_COMPL']).strip()
+                    nome = str(row['SIT_MATRICULA']).strip().upper()
+                    
+                    if nome and mat:
+                        db.session.add(Aluno(matricula=mat, nome=nome, situacao="MATRICULADO", turma_id=nova_turma.id))
                 
-                if "MATRICULADO" in bloco:
-                    partes = [p.strip() for p in bloco.split(',')]
-                    if len(partes) >= 4:
-                        mat = partes[0]
-                        nome = ""
-                        
-                        # Extrai cirurgicamente apenas o nome do aluno ativo
-                        for parte in partes:
-                            if len(parte) > 8 and not any(c.isdigit() for c in parte) and "TRIMESTRE" not in parte and "MATRICULADO" not in parte:
-                                nome = parte.upper()
-                                break
-                        
-                        # Evita duplicar alunos e garante que pegou um nome válido
-                        if nome and nome not in lista_nomes_inseridos:
-                            lista_nomes_inseridos.add(nome)
-                            db.session.add(Aluno(matricula=mat, nome=nome, situacao="MATRICULADO", turma_id=nova_turma.id))
-            
-            db.session.commit()
+                db.session.commit()
         except Exception as e:
-            print(f"Erro no processamento da limpeza: {e}")
+            print(f"Erro no processamento do CSV oficial: {e}")
             
     return redirect(url_for('index'))
 
@@ -249,16 +236,4 @@ def baixar_excel(turma_id):
     for col, h in enumerate(headers, 1): ws.cell(row=1, column=col, value=h)
     
     for idx, a in enumerate(alunos, 2):
-        ws.cell(row=idx, column=1, value=a.matricula)
-        ws.cell(row=idx, column=2, value=a.nome)
-        ws.cell(row=idx, column=3, value=a.situacao)
-        
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Diario_Limpo_Turma_{turma.nome_turma}.xlsx")
-
-if __name__ == '__main__':
-    with app.app_context(): db.create_all()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+        ws.cell(row=idx, column=1, value=a.matricula
