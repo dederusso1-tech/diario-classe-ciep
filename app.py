@@ -9,7 +9,7 @@ import openpyxl
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_sistema_final.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_blindado_final.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -70,7 +70,7 @@ HTML_COMPLETO = '''
                         <label class="form-label small fw-bold">Selecione o Arquivo CSV do Diário</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Varredura de Texto e Alinhar</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Varredura Absoluta de Alunos</button>
                 </form>
             </div>
         </div>
@@ -81,100 +81,4 @@ HTML_COMPLETO = '''
                     <p class="text-muted small">Nenhuma turma cadastrada ainda.</p>
                 {% else %}
                     <div class="list-group">
-                        {% for t in turmas %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center mb-2 rounded border">
-                                <div>
-                                    <h6 class="fw-bold m-0">Turma {{ t.nome_turma }} - {{ t.disciplina }}</h6>
-                                    <small class="text-muted">{{ t.escola }}</small>
-                                </div>
-                                <div>
-                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Chamada</a>
-                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger">🗑️</a>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    {% elif tela == 'chamada' %}
-    <div class="card card-custom p-4 bg-white mb-4">
-        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
-            <div>
-                <h4 class="fw-bold m-0 text-dark">📋 Lista de Chamada Alinhada (Apenas Ativos)</h4>
-                <small class="text-muted">{{ turma.escola }} | {{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
-            </div>
-            <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success btn-sm fw-bold px-4 shadow-sm">📥 Exportar para Excel</a>
-        </div>
-        <form action="/salvar-chamada/{{ turma.id }}" method="POST">
-            <input type="hidden" name="data_chamada" value="{{ data_atual }}">
-            <div class="table-responsive">
-                <table class="table table-striped table-bordered align-middle m-0 table-sm">
-                    <thead>
-                        <tr>
-                            <th class="text-center" style="width: 60px;">Nº</th>
-                            <th style="width: 160px;">Matrícula</th>
-                            <th>Nome Completo do Aluno</th>
-                            <th class="text-center" style="width: 140px;">Situação</th>
-                            <th class="text-center" style="width: 150px;">Frequência de Hoje</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for aluno in alunos_info %}
-                        <tr>
-                            <td class="text-center text-muted small">{{ aluno.num_chamada }}</td>
-                            <td class="text-secondary small"><code>{{ aluno.matricula }}</code></td>
-                            <td><span class="text-dark fw-semibold">{{ aluno.nome }}</span></td>
-                            <td class="text-center"><span class="badge bg-success text-white small px-2">{{ aluno.situacao }}</span></td>
-                            <td class="text-center">
-                                <div class="btn-group">
-                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="p_{{ aluno.id }}" value="P" {% if aluno.status_hoje == 'P' %}checked{% endif %}>
-                                    <label class="btn btn-xs btn-outline-success px-2 fw-bold" for="p_{{ aluno.id }}">P</label>
-                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="f_{{ aluno.id }}" value="F" {% if aluno.status_hoje == 'F' %}checked{% endif %}>
-                                    <label class="btn btn-xs btn-outline-danger px-2 fw-bold" for="f_{{ aluno.id }}">F</label>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <button type="submit" class="btn btn-primary fw-bold px-4 mt-3">💾 Gravar Chamada</button>
-        </form>
-    </div>
-    {% endif %}
-</div>
-</body>
-</html>
-'''
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_COMPLETO, tela='inicial', turmas=Turma.query.all())
-
-@app.route('/carregar-csv', methods=['POST'])
-def carregar_csv():
-    file = request.files.get('arquivo_csv')
-    if file:
-        try:
-            texto_bruto = file.read().decode('utf-8', errors='ignore')
-            linhas = texto_bruto.replace('\r', '\n').split('\n')
-            
-            escola_auto = "CIEP 321 DOUTOR ULYSSES GUIMARAES"
-            turma_auto = "1017"
-            disciplina_auto = "LINGUAGEM E MOVIMENTO"
-            
-            # Puxa metadados básicos se a linha mestre do professor existir
-            for l in linhas[:5]:
-                if "CIEP" in l and "ANDRE" in l:
-                    partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
-                    if len(partes) >= 3:
-                        escola_auto = partes[0]
-                        disciplina_auto = partes[-1]
-
-            nova_turma = Turma(escola=escola_auto, nome_turma=turma_auto, disciplina=disciplina_auto)
-            db.session.add(nova_turma)
-            db.session.commit()
-
-            contador_chamada =
+                        {% for t
