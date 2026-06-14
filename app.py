@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 # Banco de dados local estável no servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_celulas.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_universal.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -37,7 +37,7 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
-# --- INTERFACE HTML ---
+# --- INTERFACE HTML VISUAL ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -65,57 +65,5 @@ HTML_COMPLETO = '''
     <div class="row">
         <div class="col-md-5 mb-4">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-primary mb-3">📂 Carregar Novo CSV de Diário</h5>
-                <form action="/carregar-csv" method="POST" enctype="multipart/form-data">
-                    <div class="mb-2">
-                        <label class="form-label small fw-bold">Unidade Escolar</label>
-                        <input type="text" name="escola" class="form-control form-control-sm" value="CIEP 205 FREI AGOSTINHO FÍNCIAS" required>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small fw-bold">Código da Turma</label>
-                        <input type="text" name="turma" class="form-control form-control-sm" placeholder="Ex: 1017" required>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small fw-bold">Componente Curricular</label>
-                        <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: LÍNGUA PORTUGUESA" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o Arquivo CSV do Sistema</label>
-                        <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Alinhar a partir da Linha 6</button>
-                </form>
-            </div>
-        </div>
-        <div class="col-md-7">
-            <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Ativas</h5>
-                {% if not turmas %}
-                    <p class="text-muted small">Nenhuma turma cadastrada ainda.</p>
-                {% else %}
-                    <div class="list-group">
-                        {% for t in turmas %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center mb-2 rounded border">
-                                <div><h6 class="fw-bold m-0">Turma {{ t.nome_turma }} - {{ t.disciplina }}</h6></div>
-                                <div>
-                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Chamada</a>
-                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger">🗑️</a>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    {% elif tela == 'chamada' %}
-    <div class="card card-custom p-4 bg-white mb-4">
-        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
-            <div>
-                <h4 class="fw-bold m-0 text-dark">📋 Lista de Chamada Alinhada</h4>
-                <small class="text-muted">{{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
-            </div>
-            <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success btn-sm fw-bold px-4 shadow-sm">📥 Exportar para Excel</a>
-        </div>
-        <form action="/salvar-chamada/{{ turma.id }}" method="POST">
-            <input
+                <h5 class="fw-bold text-primary mb-3">📂 Carregar CSV (Qualquer Formato)</h5>
+                <form action="/car
