@@ -8,9 +8,8 @@ import openpyxl
 
 app = Flask(__name__)
 
-# Banco de dados isolado para evitar qualquer trava de cache
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_blindado_v3.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_sistema_final.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -166,7 +165,7 @@ def carregar_csv():
             turma_auto = "1017"
             disciplina_auto = "LINGUAGEM E MOVIMENTO"
             
-            # Puxa os cabeçalhos de forma amigável se encontrar a linha mestre
+            # Puxa metadados básicos se a linha mestre do professor existir
             for l in linhas[:5]:
                 if "CIEP" in l and "ANDRE" in l:
                     partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
@@ -178,107 +177,4 @@ def carregar_csv():
             db.session.add(nova_turma)
             db.session.commit()
 
-            contador_chamada = 1
-
-            for linha in linhas:
-                # Segurança máxima: ignora linhas de cabeçalho do professor e alunos cancelados
-                linha_up = linha.upper()
-                if "NUM_CHAMADA" in linha_up or "ANDRE CAMARGO" in linha_up or "CANCELADO" in linha_up:
-                    continue
-                
-                if "MATRICULADO" in linha_up:
-                    # Limpa aspas protetoras e separa os elementos independente do delimitador (, ou ;)
-                    linha_limpa = linha.replace('"', '')
-                    partes = [p.strip() for p in re.split(r'[;,]', linha_limpa) if p.strip()]
-                    
-                    # Filtra de forma defensiva para evitar o erro de IndexError (list index out of range)
-                    num_chamada = ""
-                    matricula = ""
-                    nome = ""
-                    
-                    for p in partes:
-                        if p.isdigit():
-                            if len(p) <= 3:
-                                num_chamada = p
-                            elif len(p) >= 10:
-                                matricula = p
-                        elif len(p) > 8 and "MATRICULADO" not in p.upper() and "TRIMESTRE" not in p.upper():
-                            nome = p.upper()
-                    
-                    # Se por algum motivo o número da chamada falhar, usamos o contador automático do Python
-                    if not num_chamada:
-                        num_chamada = str(contador_chamada)
-                        
-                    if nome and matricula:
-                        db.session.add(Aluno(
-                            num_chamada=num_chamada,
-                            matricula=matricula,
-                            nome=nome,
-                            situacao="MATRICULADO",
-                            turma_id=nova_turma.id
-                        ))
-                        contador_chamada += 1
-                        
-            db.session.commit()
-        except Exception as e:
-            print(f"Erro na varredura defensiva: {e}")
-            
-    return redirect(url_for('index'))
-
-@app.route('/chamada/<int:turma_id>')
-def chamada(turma_id):
-    turma = Turma.query.get_or_404(turma_id)
-    data_filtro = datetime.today().strftime('%Y-%m-%d')
-    alunos = Aluno.query.filter_by(turma_id=turma.id).all()
-    alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if str(x.num_chamada).isdigit() else 99)
-    
-    alunos_info = [{"id": a.id, "num_chamada": a.num_chamada, "matricula": a.matricula, "nome": a.nome, "situacao": a.situacao, "status_hoje": (Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first().status if Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first() else 'P')} for a in alunos_ordenados]
-    return render_template_string(HTML_COMPLETO, tela='chamada', turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
-
-@app.route('/salvar-chamada/<int:turma_id>', methods=['POST'])
-def salvar_chamada(turma_id):
-    data_chamada = request.form.get('data_chamada')
-    alunos = Aluno.query.filter_by(turma_id=turma_id).all()
-    for a in alunos:
-        status = request.form.get(f'status_{a.id}', 'P')
-        reg = Presenca.query.filter_by(aluno_id=a.id, data=data_chamada).first()
-        if reg: reg.status = status
-        else: db.session.add(Presenca(data=data_chamada, status=status, aluno_id=a.id))
-    db.session.commit()
-    return redirect(url_for('chamada', turma_id=turma_id))
-
-@app.route('/excluir-turma/<int:turma_id>')
-def excluir_turma(turma_id):
-    turma = Turma.query.get(turma_id)
-    if r:= turma: db.session.delete(r); db.session.commit()
-    return redirect(url_for('index'))
-
-@app.route('/baixar-excel/<int:turma_id>')
-def baixar_excel(turma_id):
-    turma = Turma.query.get_or_404(turma_id)
-    alunos = Aluno.query.filter_by(turma_id=turma.id).all()
-    alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if str(x.num_chamada).isdigit() else 99)
-    
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "DIARIO"
-    ws.views.sheetView[0].showGridLines = True
-    
-    headers = ["Nº Chamada", "Matrícula", "Nome Completo do Aluno", "Situação"]
-    for col, h in enumerate(headers, 1): ws.cell(row=1, column=col, value=h)
-    
-    for idx, a in enumerate(alunos_ordenados, 2):
-        ws.cell(row=idx, column=1, value=int(a.num_chamada))
-        ws.cell(row=idx, column=2, value=a.matricula)
-        ws.cell(row=idx, column=3, value=a.nome)
-        ws.cell(row=idx, column=4, value=a.situacao)
-        
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Diario_Limpo_Turma_1017.xlsx")
-
-if __name__ == '__main__':
-    with app.app_context(): db.create_all()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+            contador_chamada =
