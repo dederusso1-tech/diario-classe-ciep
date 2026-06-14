@@ -9,8 +9,7 @@ import openpyxl
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Usamos um nome fixo e definitivo para o banco de dados local do Render
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_final_estavel.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_estavel_final.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -37,7 +36,6 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
-# Força a criação das tabelas no banco de dados ANTES de qualquer rota carregar
 with app.app_context():
     db.create_all()
 
@@ -170,7 +168,7 @@ def carregar_csv():
             turma_auto = "1017"
             disciplina_auto = "LINGUAGEM E MOVIMENTO"
             
-            for l in linhas[:5]:
+            for l in lines[:5]:
                 if l and "CIEP" in l.upper() and "ANDRE" in l.upper():
                     partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
                     if len(partes) >= 3:
@@ -238,8 +236,10 @@ def salvar_chamada(turma_id):
     for a in alunos:
         status = request.form.get(f'status_{a.id}', 'P')
         reg = Presenca.query.filter_by(aluno_id=a.id, data=data_chamada).first()
-        if reg: reg.status = status
-        else: db.session.add(Presenca(data=data_chamada, status=status, color=status, aluno_id=a.id))
+        if reg: 
+            reg.status = status
+        else: 
+            db.session.add(Presenca(data=data_chamada, status=status, aluno_id=a.id))
     db.session.commit()
     return redirect(url_for('chamada', turma_id=turma_id))
 
