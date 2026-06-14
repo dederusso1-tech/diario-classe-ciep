@@ -1,7 +1,7 @@
 import os
+import csv
 from datetime import datetime
 from io import BytesIO
-import pandas as pd
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 import openpyxl
@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 # Banco de dados local estável no servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_universal.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_perfeito.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -49,8 +49,8 @@ HTML_COMPLETO = '''
         body { background-color: #f4f6f9; font-family: system-ui, sans-serif; }
         .navbar-custom { background-color: #1a365d; color: white; }
         .card-custom { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: none; }
-        .table th { background-color: #1a365d !important; color: white !important; padding: 10px; }
-        .table td { vertical-align: middle; }
+        .table th { background-color: #1a365d !important; color: white !important; padding: 12px; }
+        .table td { vertical-align: middle; padding: 10px; }
     </style>
 </head>
 <body>
@@ -65,5 +65,89 @@ HTML_COMPLETO = '''
     <div class="row">
         <div class="col-md-5 mb-4">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-primary mb-3">📂 Carregar CSV (Qualquer Formato)</h5>
-                <form action="/car
+                <h5 class="fw-bold text-primary mb-3">📂 Carregar CSV Ofical Sem Erros</h5>
+                <form action="/carregar-csv" method="POST" enctype="multipart/form-data">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">Unidade Escolar</label>
+                        <input type="text" name="escola" class="form-control form-control-sm" value="CIEP 205 FREI AGOSTINHO FÍNCIAS" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">Código da Turma</label>
+                        <input type="text" name="turma" class="form-control form-control-sm" placeholder="Ex: 1017" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">Componente Curricular</label>
+                        <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: LÍNGUA PORTUGUESA" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV</label>
+                        <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Limpar Aspas e Separar Células</button>
+                </form>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="card card-custom p-4 bg-white">
+                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Salvas na Nuvem</h5>
+                {% if not turmas %}
+                    <p class="text-muted small">Nenhuma turma cadastrada ainda.</p>
+                {% else %}
+                    <div class="list-group">
+                        {% for t in turmas %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center mb-2 rounded border">
+                                <div><h6 class="fw-bold m-0">Turma {{ t.nome_turma }} - {{ t.disciplina }}</h6></div>
+                                <div>
+                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Chamada</a>
+                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger">🗑️</a>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% elif tela == 'chamada' %}
+    <div class="card card-custom p-4 bg-white mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+            <div>
+                <h4 class="fw-bold m-0 text-dark">📋 Frequência Escolar Alinhada</h4>
+                <small class="text-muted">{{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
+            </div>
+            <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success btn-sm fw-bold px-4 shadow-sm">📥 Exportar para Excel</a>
+        </div>
+        <form action="/salvar-chamada/{{ turma.id }}" method="POST">
+            <input type="hidden" name="data_chamada" value="{{ data_atual }}">
+            <div class="table-responsive">
+                <table class="table table-striped table-bordered align-middle m-0 table-sm">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width: 60px;">Nº</th>
+                            <th style="width: 160px;">Matrícula</th>
+                            <th>Nome Completo do Aluno</th>
+                            <th class="text-center" style="width: 140px;">Situação</th>
+                            <th class="text-center" style="width: 150px;">Frequência de Hoje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for aluno in alunos_info %}
+                        <tr>
+                            <td class="text-center text-muted small">{{ aluno.num_chamada }}</td>
+                            <td class="text-secondary small"><code>{{ aluno.matricula }}</code></td>
+                            <td><span class="text-dark fw-semibold">{{ aluno.nome }}</span></td>
+                            <td class="text-center"><span class="badge bg-success text-white small px-2">{{ aluno.situacao }}</span></td>
+                            <td class="text-center">
+                                <div class="btn-group">
+                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="p_{{ aluno.id }}" value="P" {% if aluno.status_hoje == 'P' %}checked{% endif %}>
+                                    <label class="btn btn-xs btn-outline-success px-2 fw-bold" for="p_{{ aluno.id }}">P</label>
+                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="f_{{ aluno.id }}" value="F" {% if aluno.status_hoje == 'F' %}checked{% endif %}>
+                                    <label class="btn btn-xs btn-outline-danger px-2 fw-bold" for="f_{{ aluno.id }}">F</label>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary fw-bold px-4 mt-3">💾 Gravar Chamada</
