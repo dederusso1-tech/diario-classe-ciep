@@ -168,7 +168,7 @@ def carregar_csv():
             turma_auto = "1017"
             disciplina_auto = "LINGUAGEM E MOVIMENTO"
             
-            for l in lines[:5]:
+            for l in linhas[:5]:
                 if l and "CIEP" in l.upper() and "ANDRE" in l.upper():
                     partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
                     if len(partes) >= 3:
