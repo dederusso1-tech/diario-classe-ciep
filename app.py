@@ -8,11 +8,13 @@ import openpyxl
 
 app = Flask(__name__)
 
+# Banco de dados local estável no servidor do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_finalissimo.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_limpeza_extrema.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
+# --- MODELOS DO BANCO DE DADOS ---
 class Turma(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     escola = db.Column(db.String(150), nullable=False)
@@ -35,12 +37,13 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
+# --- INTERFACE HTML VISUAL COM COLUNAS ALINHADAS ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Portal do Docente - CIEP 205</title>
+    <title>Portal do Docente - CIEP</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <style>
         body { background-color: #f4f6f9; font-family: system-ui, sans-serif; }
@@ -53,7 +56,7 @@ HTML_COMPLETO = '''
 <body>
 <nav class="navbar navbar-custom p-3 mb-4">
     <div class="container d-flex justify-content-between">
-        <span class="navbar-brand mb-0 h1 text-white">🍎 Diário de Frequência Inteligente - CIEP 205</span>
+        <span class="navbar-brand mb-0 h1 text-white">🍎 Diário de Frequência Inteligente</span>
         <a href="/" class="btn btn-sm btn-outline-light fw-bold">🏠 Voltar ao Menu</a>
     </div>
 </nav>
@@ -62,21 +65,21 @@ HTML_COMPLETO = '''
     <div class="row">
         <div class="col-md-5 mb-4">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-primary mb-3">📂 Carregar CSV Original</h5>
+                <h5 class="fw-bold text-primary mb-3">📂 Carregar Diário Trimestral (CSV)</h5>
                 <form action="/carregar-csv" method="POST" enctype="multipart/form-data">
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o CSV do Trimestre</label>
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Original</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Separar Células e Alunos Ativos</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Expurgar Cabeçalhos e Alinhar</button>
                 </form>
             </div>
         </div>
         <div class="col-md-7">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Salvas na Nuvem</h5>
+                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Ativas</h5>
                 {% if not turmas %}
-                    <p class="text-muted small">Nenhuma turma cadastrada ainda.</p>
+                    <p class="text-muted small">Nenhuma turma processada ainda.</p>
                 {% else %}
                     <div class="list-group">
                         {% for t in turmas %}
@@ -86,4 +89,178 @@ HTML_COMPLETO = '''
                                     <small class="text-muted">{{ t.escola }}</small>
                                 </div>
                                 <div>
-                                    <a href="/chamada/{{ t.
+                                    <a href="/chamada/{{ t.id }}" class="btn btn-sm btn-success fw-bold">📅 Chamada</a>
+                                    <a href="/excluir-turma/{{ t.id }}" class="btn btn-sm btn-outline-danger">🗑️</a>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% elif tela == 'chamada' %}
+    <div class="card card-custom p-4 bg-white mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+            <div>
+                <h4 class="fw-bold m-0 text-dark">📋 Lista de Chamada Alinhada (Apenas Ativos)</h4>
+                <small class="text-muted">{{ turma.escola }} | {{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
+            </div>
+            <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success btn-sm fw-bold px-4 shadow-sm">📥 Exportar para Excel</a>
+        </div>
+        <form action="/salvar-chamada/{{ turma.id }}" method="POST">
+            <input type="hidden" name="data_chamada" value="{{ data_atual }}">
+            <div class="table-responsive">
+                <table class="table table-striped table-bordered align-middle m-0 table-sm">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width: 60px;">Nº</th>
+                            <th style="width: 160px;">Matrícula</th>
+                            <th>Nome Completo do Aluno</th>
+                            <th class="text-center" style="width: 140px;">Situação</th>
+                            <th class="text-center" style="width: 150px;">Frequência de Hoje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for aluno in alunos_info %}
+                        <tr>
+                            <td class="text-center text-muted small">{{ aluno.num_chamada }}</td>
+                            <td class="text-secondary small"><code>{{ aluno.matricula }}</code></td>
+                            <td><span class="text-dark fw-semibold">{{ aluno.nome }}</span></td>
+                            <td class="text-center"><span class="badge bg-success text-white small px-2">{{ aluno.situacao }}</span></td>
+                            <td class="text-center">
+                                <div class="btn-group">
+                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="p_{{ aluno.id }}" value="P" {% if aluno.status_hoje == 'P' %}checked{% endif %}>
+                                    <label class="btn btn-xs btn-outline-success px-2 fw-bold" for="p_{{ aluno.id }}">P</label>
+                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="f_{{ aluno.id }}" value="F" {% if aluno.status_hoje == 'F' %}checked{% endif %}>
+                                    <label class="btn btn-xs btn-outline-danger px-2 fw-bold" for="f_{{ aluno.id }}">F</label>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary fw-bold px-4 mt-3">💾 Gravar Chamada</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
+'''
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_COMPLETO, tela='inicial', turmas=Turma.query.all())
+
+@app.route('/carregar-csv', methods=['POST'])
+def carregar_csv():
+    file = request.files.get('arquivo_csv')
+    if file:
+        try:
+            conteudo_linhas = file.read().decode('utf-8', errors='ignore').splitlines()
+            
+            # Detecta de forma inteligente o separador real (, ou ;)
+            amostra = "".join(conteudo_linhas[:4])
+            separador = ';' if ';' in amostra else ','
+
+            leitor = csv.reader(conteudo_linhas, delimiter=separador, quotechar='"')
+            linhas_lista = list(leitor)
+            
+            # Puxa os dados da escola e da matéria diretamente da linha fixa de cabeçalho
+            linha_meta = linhas_lista[1]
+            escola_auto = str(linha_meta[0]).strip().upper()
+            
+            # Extrai o código numérico limpo da turma
+            turma_bruta = str(linha_meta[4]).strip().upper()
+            turma_auto = "1017" if "1017" in turma_bruta else "S/T"
+            
+            disciplina_auto = str(linha_meta[6]).strip().upper()
+
+            nova_turma = Turma(escola=escola_auto, nome_turma=turma_auto, disciplina=disciplina_auto)
+            db.session.add(nova_turma)
+            db.session.commit()
+
+            for row in linhas_lista:
+                if len(row) >= 5:
+                    num_chamada = str(row[0]).strip()
+                    matricula = str(row[1]).strip()
+                    nome = str(row[3]).strip().upper()
+                    situacao = str(row[4]).strip().upper()
+
+                    # BLOQUEIO ABSOLUTO: Descarta metadados duplicados e alunos "Cancelado"
+                    if "ANDRE CAMARGO" in nome or "CIEP" in nome or "NUM_CHAMADA" in nome or "TEXTBOX" in nome:
+                        continue
+                        
+                    if situacao == "MATRICULADO" and num_chamada.isdigit():
+                        db.session.add(Aluno(
+                            num_chamada=num_chamada,
+                            matricula=matricula,
+                            nome=nome,
+                            situacao="MATRICULADO",
+                            turma_id=nova_turma.id
+                        ))
+            db.session.commit()
+        except Exception as e:
+            print(f"Erro na limpeza cirúrgica: {e}")
+            
+    return redirect(url_for('index'))
+
+@app.route('/chamada/<int:turma_id>')
+def chamada(turma_id):
+    turma = Turma.query.get_or_404(turma_id)
+    data_filtro = datetime.today().strftime('%Y-%m-%d')
+    alunos = Aluno.query.filter_by(turma_id=turma.id).all()
+    alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if str(x.num_chamada).isdigit() else 99)
+    
+    alunos_info = [{"id": a.id, "num_chamada": a.num_chamada, "matricula": a.matricula, "nome": a.nome, "situacao": a.situacao, "status_hoje": (Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first().status if Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first() else 'P')} for a in alunos_ordenados]
+    return render_template_string(HTML_COMPLETO, tela='chamada', turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
+
+@app.route('/salvar-chamada/<int:turma_id>', methods=['POST'])
+def salvar_chamada(turma_id):
+    data_chamada = request.form.get('data_chamada')
+    alunos = Aluno.query.filter_by(turma_id=turma_id).all()
+    for a in alunos:
+        status = request.form.get(f'status_{a.id}', 'P')
+        reg = Presenca.query.filter_by(aluno_id=a.id, data=data_chamada).first()
+        if reg: reg.status = status
+        else: db.session.add(Presenca(data=data_chamada, status=status, aluno_id=a.id))
+    db.session.commit()
+    return redirect(url_for('chamada', turma_id=turma_id))
+
+@app.route('/excluir-turma/<int:turma_id>')
+def excluir_turma(turma_id):
+    turma = Turma.query.get(turma_id)
+    if r:= turma: db.session.delete(r); db.session.commit()
+    return redirect(url_for('index'))
+
+@app.route('/baixar-excel/<int:turma_id>')
+def baixar_excel(turma_id):
+    turma = Turma.query.get_or_404(turma_id)
+    alunos = Aluno.query.filter_by(turma_id=turma.id).all()
+    alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if str(x.num_chamada).isdigit() else 99)
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "DIARIO"
+    ws.views.sheetView[0].showGridLines = True
+    
+    headers = ["Nº Chamada", "Matrícula", "Nome Completo do Aluno", "Situação"]
+    for col, h in enumerate(headers, 1): ws.cell(row=1, column=col, value=h)
+    
+    for idx, a in enumerate(alunos_ordenados, 2):
+        ws.cell(row=idx, column=1, value=int(a.num_chamada))
+        ws.cell(row=idx, column=2, value=a.matricula)
+        ws.cell(row=idx, column=3, value=a.nome)
+        ws.cell(row=idx, column=4, value=a.situacao)
+        
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Diario_Limpo_Turma_1017.xlsx")
+
+if __name__ == '__main__':
+    with app.app_context(): db.create_all()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
