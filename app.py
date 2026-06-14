@@ -9,7 +9,8 @@ import openpyxl
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_blindado_v4.db')
+# Usamos um nome fixo e definitivo para o banco de dados local do Render
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_final_estavel.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -35,6 +36,10 @@ class Presenca(db.Model):
     data = db.Column(db.String(10), nullable=False)
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
+
+# Força a criação das tabelas no banco de dados ANTES de qualquer rota carregar
+with app.app_context():
+    db.create_all()
 
 # --- INTERFACE HTML ---
 HTML_COMPLETO = '''
@@ -234,7 +239,7 @@ def salvar_chamada(turma_id):
         status = request.form.get(f'status_{a.id}', 'P')
         reg = Presenca.query.filter_by(aluno_id=a.id, data=data_chamada).first()
         if reg: reg.status = status
-        else: db.session.add(Presenca(data=data_chamada, status=status, aluno_id=a.id))
+        else: db.session.add(Presenca(data=data_chamada, status=status, color=status, aluno_id=a.id))
     db.session.commit()
     return redirect(url_for('chamada', turma_id=turma_id))
 
@@ -270,6 +275,5 @@ def baixar_excel(turma_id):
     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Diario_Limpo_Turma_1017.xlsx")
 
 if __name__ == '__main__':
-    with app.app_context(): db.create_all()
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
