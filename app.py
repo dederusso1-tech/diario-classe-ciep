@@ -5,13 +5,12 @@ import pandas as pd
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
 
-# Banco de dados local estável no servidor do Render
+# Banco de dados estável para o ambiente do Render
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_oficial.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_limpo_v2.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -25,6 +24,7 @@ class Turma(db.Model):
 
 class Aluno(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    num_chamada = db.Column(db.String(10), nullable=True)
     matricula = db.Column(db.String(50), nullable=True)
     nome = db.Column(db.String(200), nullable=False)
     situacao = db.Column(db.String(50), nullable=True)
@@ -37,7 +37,7 @@ class Presenca(db.Model):
     status = db.Column(db.String(1), nullable=False)
     aluno_id = db.Column(db.Integer, db.ForeignKey('aluno.id'), nullable=False)
 
-# --- INTERFACE HTML ---
+# --- INTERFACE HTML LIMPA E ESPAÇADA ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -49,7 +49,8 @@ HTML_COMPLETO = '''
         body { background-color: #f4f6f9; font-family: system-ui, sans-serif; }
         .navbar-custom { background-color: #1a365d; color: white; }
         .card-custom { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: none; }
-        .table th { background-color: #1a365d !important; color: white !important; }
+        .table th { background-color: #1a365d !important; color: white !important; padding: 10px; }
+        .table td { vertical-align: middle; }
     </style>
 </head>
 <body>
@@ -64,7 +65,7 @@ HTML_COMPLETO = '''
     <div class="row">
         <div class="col-md-5 mb-4">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-primary mb-3">📂 Filtrar e Carregar CSV do Sistema</h5>
+                <h5 class="fw-bold text-primary mb-3">📂 Carregar Novo CSV de Diário</h5>
                 <form action="/carregar-csv" method="POST" enctype="multipart/form-data">
                     <div class="mb-2">
                         <label class="form-label small fw-bold">Unidade Escolar</label>
@@ -76,21 +77,21 @@ HTML_COMPLETO = '''
                     </div>
                     <div class="mb-2">
                         <label class="form-label small fw-bold">Componente Curricular</label>
-                        <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: AS LINGUAGENS NA TECNOLOGIA" required>
+                        <input type="text" name="disciplina" class="form-control form-control-sm" placeholder="Ex: LÍNGUA PORTUGUESA" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Selecione o Arquivo CSV Oficial</label>
+                        <label class="form-label small fw-bold">Selecione o Arquivo CSV do Sistema</label>
                         <input type="file" name="arquivo_csv" class="form-control form-control-sm" accept=".csv" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Processar e Limpar Lista</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">🔄 Remover Sujeira e Alinhar Colunas</button>
                 </form>
             </div>
         </div>
         <div class="col-md-7">
             <div class="card card-custom p-4 bg-white">
-                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Salvas na Nuvem</h5>
+                <h5 class="fw-bold text-success mb-3">📚 Suas Turmas Ativas</h5>
                 {% if not turmas %}
-                    <p class="text-muted small">Nenhuma turma processada ainda nesta sessão.</p>
+                    <p class="text-muted small">Nenhuma turma cadastrada ainda.</p>
                 {% else %}
                     <div class="list-group">
                         {% for t in turmas %}
@@ -111,7 +112,7 @@ HTML_COMPLETO = '''
     <div class="card card-custom p-4 bg-white mb-4">
         <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
             <div>
-                <h4 class="fw-bold m-0 text-dark">📋 Frequência Escolar Organizada (Apenas Ativos)</h4>
+                <h4 class="fw-bold m-0 text-dark">📋 Lista de Chamada Limpa e Alinhada</h4>
                 <small class="text-muted">{{ turma.disciplina }} | Turma: {{ turma.nome_turma }}</small>
             </div>
             <a href="/baixar-excel/{{ turma.id }}" class="btn btn-success btn-sm fw-bold px-4 shadow-sm">📥 Exportar para Excel</a>
@@ -122,17 +123,19 @@ HTML_COMPLETO = '''
                 <table class="table table-striped table-bordered align-middle m-0 table-sm">
                     <thead>
                         <tr>
-                            <th class="ps-2" style="width: 180px;">Matrícula</th>
+                            <th class="text-center" style="width: 60px;">Nº</th>
+                            <th style="width: 160px;">Matrícula</th>
                             <th>Nome Completo do Aluno</th>
-                            <th class="text-center" style="width: 150px;">Situação</th>
-                            <th class="text-center" style="width: 180px;">Frequência de Hoje</th>
+                            <th class="text-center" style="width: 140px;">Situação</th>
+                            <th class="text-center" style="width: 150px;">Frequência de Hoje</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for aluno in alunos_info %}
                         <tr>
-                            <td class="ps-2 text-secondary small"><code>{{ aluno.matricula }}</code></td>
-                            <td><strong class="text-dark">{{ aluno.nome }}</strong></td>
+                            <td class="text-center text-muted small">{{ aluno.num_chamada }}</td>
+                            <td class="text-secondary small"><code>{{ aluno.matricula }}</code></td>
+                            <td><span class="text-dark fw-semibold">{{ aluno.nome }}</span></td>
                             <td class="text-center"><span class="badge bg-success text-white small px-2">{{ aluno.situacao }}</span></td>
                             <td class="text-center">
                                 <div class="btn-group">
@@ -164,76 +167,4 @@ def index():
 def carregar_csv():
     escola = request.form.get('escola').strip().upper()
     nome_turma = request.form.get('turma').strip().upper()
-    disciplina = request.form.get('disciplina').strip().upper()
-    file = request.files.get('arquivo_csv')
-
-    if file:
-        try:
-            # Força o pandas a pular as 3 linhas de metadados do professor/escola
-            df = pd.read_csv(file, skiprows=3, sep=',', encoding='utf-8')
-            
-            # Limpa o nome das colunas removendo espaços
-            df.columns = [c.strip() for c in df.columns]
-            
-            # Filtro master: Joga fora na hora quem está CANCELADO
-            df_ativos = df[df['SIT_MATRICULA'].str.strip().str.upper() == 'MATRICULADO']
-            
-            if not df_ativos.empty:
-                nova_turma = Turma(escola=escola, nome_turma=nome_turma, disciplina=disciplina)
-                db.session.add(nova_turma)
-                db.session.commit()
-                
-                for _, row in df_ativos.iterrows():
-                    # No layout do seu arquivo, NOME_COMPL guarda o número de matrícula e SIT_MATRICULA guarda o nome
-                    mat = str(row['NOME_COMPL']).strip()
-                    nome = str(row['SIT_MATRICULA']).strip().upper()
-                    
-                    if nome and mat:
-                        db.session.add(Aluno(matricula=mat, nome=nome, situacao="MATRICULADO", turma_id=nova_turma.id))
-                
-                db.session.commit()
-        except Exception as e:
-            print(f"Erro no processamento do CSV oficial: {e}")
-            
-    return redirect(url_for('index'))
-
-@app.route('/chamada/<int:turma_id>')
-def chamada(turma_id):
-    turma = Turma.query.get_or_404(turma_id)
-    data_filtro = datetime.today().strftime('%Y-%m-%d')
-    alunos = Aluno.query.filter_by(turma_id=turma.id).order_by(Aluno.nome).all()
-    alunos_info = [{"id": a.id, "matricula": a.matricula, "nome": a.nome, "situacao": a.situacao, "status_hoje": (Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first().status if Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first() else 'P')} for a in alunos]
-    return render_template_string(HTML_COMPLETO, tela='chamada', turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
-
-@app.route('/salvar-chamada/<int:turma_id>', methods=['POST'])
-def salvar_chamada(turma_id):
-    data_chamada = request.form.get('data_chamada')
-    alunos = Aluno.query.filter_by(turma_id=turma_id).all()
-    for a in alunos:
-        status = request.form.get(f'status_{a.id}', 'P')
-        reg = Presenca.query.filter_by(aluno_id=a.id, data=data_chamada).first()
-        if reg: reg.status = status
-        else: db.session.add(Presenca(data=data_chamada, status=status, aluno_id=a.id))
-    db.session.commit()
-    return redirect(url_for('chamada', turma_id=turma_id))
-
-@app.route('/excluir-turma/<int:turma_id>')
-def excluir_turma(turma_id):
-    turma = Turma.query.get(turma_id)
-    if r:= turma: db.session.delete(r); db.session.commit()
-    return redirect(url_for('index'))
-
-@app.route('/baixar-excel/<int:turma_id>')
-def baixar_excel(turma_id):
-    turma = Turma.query.get_or_404(turma_id)
-    alunos = Aluno.query.filter_by(turma_id=turma.id).order_by(Aluno.nome).all()
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "DIARIO"
-    ws.views.sheetView[0].showGridLines = True
-    
-    headers = ["Matrícula", "Nome Completo do Aluno", "Situação"]
-    for col, h in enumerate(headers, 1): ws.cell(row=1, column=col, value=h)
-    
-    for idx, a in enumerate(alunos, 2):
-        ws.cell(row=idx, column=1, value=a.matricula
+    disciplina
