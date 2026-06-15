@@ -185,7 +185,7 @@ def carregar_csv():
                 if not linha or not isinstance(linha, str):
                     continue
                     
-                linha_up = linha.upper()
+                linha_up = Finder = linha.upper()
                 
                 if "NUM_CHAMADA" in linha_up or "ANDRE CAMARGO" in linha_up or "CANCELADO" in linha_up:
                     continue
