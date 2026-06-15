@@ -206,8 +206,8 @@ def carregar_csv():
                     if nome and matricula:
                         db.session.add(Aluno(
                             num_chamada=str(contador_chamada),
-                            matricula=matricula,
-                            nome=nome,
+                            matricula=str(matricula),
+                            nome=str(nome),
                             situacao="MATRICULADO",
                             turma_id=nova_turma.id
                         ))
@@ -215,7 +215,7 @@ def carregar_csv():
                         
             db.session.commit()
         except Exception as e:
-            print(f"Erro na varredura defensiva: {e}")
+            print(f"Erro no processamento do CSV: {e}")
             
     return redirect(url_for('index'))
 
@@ -225,7 +225,6 @@ def chamada(turma_id):
     data_filtro = datetime.today().strftime('%Y-%m-%d')
     alunos = Aluno.query.filter_by(turma_id=turma.id).all()
     
-    # Ordenação robusta contra valores em branco ou strings
     alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if (x.num_chamada and str(x.num_chamada).isdigit()) else 99)
     
     alunos_info = []
@@ -235,75 +234,4 @@ def chamada(turma_id):
         alunos_info.append({
             "id": a.id, 
             "num_chamada": a.num_chamada, 
-            "matricula": a.matricula, 
-            "nome": a.nome, 
-            "situacao": a.situacao, 
-            "status_hoje": status_hoje
-        })
-        
-    return render_template_string(HTML_COMPLETO, tela='chamada', turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
-
-@app.route('/salvar-chamada/<int:turma_id>', methods=['POST'])
-def salvar_chamada(turma_id):
-    data_chamada = request.form.get('data_chamada')
-    alunos = Aluno.query.filter_by(turma_id=turma_id).all()
-    
-    for a in alunos:
-        status = request.form.get(f'status_{a.id}', 'P')
-        # Correção aqui: garantindo a busca correta por ID numérico do aluno
-        reg = Presenca.query.filter_by(aluno_id=int(a.id), data=str(data_chamada)).first()
-        if reg: 
-            reg.status = status
-        else: 
-            db.session.add(Presenca(data=str(data_chamada), status=status, aluno_id=int(a.id)))
-            
-    db.session.commit()
-    return redirect(url_for('chamada', turma_id=turma_id))
-
-@app.route('/excluir-turma/<int:turma_id>')
-def excluir_turma(turma_id):
-    turma = Turma.query.get(turma_id)
-    if r:= turma: 
-        db.session.delete(r)
-        db.session.commit()
-    return redirect(url_for('index'))
-
-@app.route('/baixar-excel/<int:turma_id>')
-def baixar_excel(turma_id):
-    try:
-        turma = Turma.query.get_or_404(turma_id)
-        alunos = Aluno.query.filter_by(turma_id=turma.id).all()
-        alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if (x.num_chamada and str(x.num_chamada).isdigit()) else 99)
-        
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "DIARIO"
-        ws.views.sheetView[0].showGridLines = True
-        
-        headers = ["Nº Chamada", "Matrícula", "Nome Completo do Aluno", "Situação"]
-        for col, h in enumerate(headers, 1): 
-            ws.cell(row=1, column=col, value=h)
-        
-        for idx, a in enumerate(alunos_ordenados, 2):
-            num = int(a.num_chamada) if (a.num_chamada and str(a.num_chamada).isdigit()) else idx-1
-            ws.cell(row=idx, column=1, value=num)
-            ws.cell(row=idx, column=2, value=str(a.matricula))
-            ws.cell(row=idx, column=3, value=str(a.nome))
-            ws.cell(row=idx, column=4, value=str(a.situacao))
-            
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-        
-        return send_file(
-            output, 
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
-            as_attachment=True, 
-            download_name=f"Diario_Limpo_Turma_{turma.nome_turma}.xlsx"
-        )
-    except Exception as e:
-        return f"Erro ao gerar Excel: {str(e)}", 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+            "matricula
