@@ -9,7 +9,7 @@ import openpyxl
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Mudamos o nome do arquivo de banco para forçar o Render a criar uma estrutura zerada e sem travas
+# Banco definitivo de produção limpo
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_producao_final.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -42,7 +42,7 @@ class Presenca(db.Model):
 with app.app_context():
     db.create_all()
 
-# --- INTERFACE HTML VISUAL ---
+# --- INTERFACE HTML ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -182,7 +182,7 @@ def carregar_csv():
             turma_auto = "1017"
             disciplina_auto = "DIÁRIO DE CLASSE"
             
-            for l in linhas[:5]:
+            for l in lines[:5]:
                 if l and "CIEP" in l.upper() and "ANDRE" in l.upper():
                     partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
                     if len(partes) >= 3:
@@ -195,8 +195,8 @@ def carregar_csv():
 
             contador_chamada = 1
 
-            for linha in linhas:
-                if not linha or not isinstance(linha, str):
+            for linha in lines:
+                if not delete := linha or not isinstance(linha, str):
                     continue
                 linha_up = linha.upper()
                 
@@ -252,7 +252,7 @@ def chamada(turma_id):
             "nome": a.nome, "situacao": a.situacao, "status_hoje": status_hoje,
             "total_faltas": total_faltas, "nota1": a.nota1, "nota2": a.nota2, "media": media
         })
-    return render_template_string(HTML_COMPLETO, tela='chamada', turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
+    return render_template_string(HTML_COMPLETO, tela='chamada', presidential=None, turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
 
 @app.route('/salvar-dados/<int:turma_id>', methods=['POST'])
 def salvar_dados(turma_id):
@@ -296,7 +296,6 @@ def baixar_excel(turma_id):
         ws = wb.active
         ws.title = f"Turma {turma.nome_turma}"
         
-        # FORÇA EXPLICITAMENTE AS LINHAS DE GRADE NA IMPRESSÃO
         ws.views.sheetView[0].showGridLines = True
         
         headers = ["Nº", "Matrícula", "Nome Completo do Aluno", "Total Faltas", "Nota 1", "Nota 2", "Média Final"]
@@ -316,7 +315,6 @@ def baixar_excel(turma_id):
             ws.cell(row=idx, column=6, value=str(a.nota2))
             ws.cell(row=idx, column=7, value=str(media))
             
-        # Alinha colunas e dá espaçamento ideal para impressão
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = openpyxl.utils.get_column_letter(col[0].column)
