@@ -5,12 +5,12 @@ from io import BytesIO
 from flask import Flask, render_template_string, request, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_notas_v2.db')
+# Mudamos o nome do arquivo de banco para forçar o Render a criar uma estrutura zerada e sem travas
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_producao_final.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -42,7 +42,7 @@ class Presenca(db.Model):
 with app.app_context():
     db.create_all()
 
-# --- INTERFACE HTML VISUAL BLINDADA ---
+# --- INTERFACE HTML VISUAL ---
 HTML_COMPLETO = '''
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -55,8 +55,8 @@ HTML_COMPLETO = '''
         .navbar-custom { background-color: #1a365d; color: white; }
         .card-custom { border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: none; }
         .table th { background-color: #1a365d !important; color: white !important; padding: 12px; text-align: center; }
-        .table td { vertical-align: middle; padding: 8px; }
-        .input-nota { width: 70px; text-align: center; font-weight: bold; }
+        .table td { vertical-align: middle; padding: 10px; }
+        .input-nota { width: 75px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -123,9 +123,9 @@ HTML_COMPLETO = '''
                             <th style="width: 50px;">Nº</th>
                             <th>Nome Completo do Aluno</th>
                             <th style="width: 80px;">Faltas</th>
-                            <th style="width: 90px;">Nota 1</th>
-                            <th style="width: 90px;">Nota 2</th>
-                            <th style="width: 90px;">Média</th>
+                            <th style="width: 95px;">Nota 1</th>
+                            <th style="width: 95px;">Nota 2</th>
+                            <th style="width: 95px;">Média</th>
                             <th style="width: 130px;">Chamada de Hoje</th>
                         </tr>
                     </thead>
@@ -208,13 +208,15 @@ def carregar_csv():
                     partes = [p.strip() for p in re.split(r'[;,]', linha_limpa) if p.strip()]
                     
                     matricula = ""
-                    nome = ""
+                    textos = []
                     
                     for p in partes:
                         if p.isdigit() and len(p) >= 10:
                             matricula = p
-                        elif len(p) > 8 and "MATRICULADO" not in p.upper() and "TRIMESTRE" not in p.upper():
-                            nome = p.upper()
+                        elif len(p) > 5 and not any(c.isdigit() for c in p) and "MATRICULADO" not in p.upper() and "TRIMESTRE" not in p.upper():
+                            textos.append(p.upper())
+                    
+                    nome = textos[0] if textos else ""
                     
                     if nome and matricula:
                         db.session.add(Aluno(
@@ -243,7 +245,7 @@ def chamada(turma_id):
         reg = Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first()
         status_hoje = reg.status if reg else 'P'
         total_faltas = Presenca.query.filter_by(aluno_id=a.id, status='F').count()
-        media = (a.nota1 + a.nota2) / 2
+        media = (float(a.nota1 or 0) + float(a.nota2 or 0)) / 2
         
         alunos_info.append({
             "id": a.id, "num_chamada": a.num_chamada, "matricula": a.matricula,
@@ -258,19 +260,19 @@ def salvar_dados(turma_id):
     alunos = Aluno.query.filter_by(turma_id=turma_id).all()
     
     for a in alunos:
-        # Salva Notas de forma segura
         n1 = request.form.get(f'nota1_{a.id}')
         n2 = request.form.get(f'nota2_{a.id}')
-        a.nota1 = float(n1) if (n1 and n1.strip()) else 0.0
-        a.nota2 = float(n2) if (n2 and n2.strip()) else 0.0
+        try: a.nota1 = float(n1) if n1 else 0.0
+        except: a.nota1 = 0.0
+        try: a.nota2 = float(n2) if n2 else 0.0
+        except: a.nota2 = 0.0
         
-        # Salva Presença de forma blindada contra valores nulos
         status = request.form.get(f'status_{a.id}', 'P')
-        reg = Presenca.query.filter_by(aluno_id=int(a.id), data=str(data_chamada)).first()
+        reg = Presenca.query.filter_by(aluno_id=a.id, data=str(data_chamada)).first()
         if reg: 
             reg.status = str(status)
         else: 
-            db.session.add(Presenca(data=str(data_chamada), status=str(status), aluno_id=int(a.id)))
+            db.session.add(Presenca(data=str(data_chamada), status=str(status), aluno_id=a.id))
             
     db.session.commit()
     return redirect(url_for('chamada', turma_id=turma_id))
@@ -294,42 +296,31 @@ def baixar_excel(turma_id):
         ws = wb.active
         ws.title = f"Turma {turma.nome_turma}"
         
-        # GARANTE AS LINHAS DE GRADE NA IMPRESSÃO
+        # FORÇA EXPLICITAMENTE AS LINHAS DE GRADE NA IMPRESSÃO
         ws.views.sheetView[0].showGridLines = True
-        
-        font_header = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-        fill_header = PatternFill(start_color="1A365D", end_color="1A365D", fill_type="solid")
-        borda_fina = Border(left=Side(style='thin', color='CBD5E0'), right=Side(style='thin', color='CBD5E0'),
-                            top=Side(style='thin', color='CBD5E0'), bottom=Side(style='thin', color='CBD5E0'))
         
         headers = ["Nº", "Matrícula", "Nome Completo do Aluno", "Total Faltas", "Nota 1", "Nota 2", "Média Final"]
         for col_idx, h in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_idx, value=h)
-            cell.font = font_header
-            cell.fill = fill_header
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.font = openpyxl.styles.Font(bold=True)
         
         for idx, a in enumerate(alunos_ordenados, 2):
             total_faltas = Presenca.query.filter_by(aluno_id=a.id, status='F').count()
-            media = (a.nota1 + a.nota2) / 2
+            media = (float(a.nota1 or 0) + float(a.nota2 or 0)) / 2
             
-            ws.cell(row=idx, column=1, value=int(a.num_chamada) if a.num_chamada else idx-1).alignment = Alignment(horizontal="center")
-            ws.cell(row=idx, column=2, value=str(a.matricula)).alignment = Alignment(horizontal="center")
-            ws.cell(row=idx, column=3, value=str(a.nome))
-            ws.cell(row=idx, column=4, value=total_faltas).alignment = Alignment(horizontal="center")
-            ws.cell(row=idx, column=5, value=a.nota1).alignment = Alignment(horizontal="center")
-            ws.cell(row=idx, column=6, value=a.nota2).alignment = Alignment(horizontal="center")
-            ws.cell(row=idx, column=7, value=media).alignment = Alignment(horizontal="center")
+            ws.cell(row=idx, column=1, value=str(a.num_chamada) if a.num_chamada else str(idx-1))
+            ws.cell(row=idx, column=2, value=str(a.matricula) if a.matricula else "")
+            ws.cell(row=idx, column=3, value=str(a.nome) if a.nome else "")
+            ws.cell(row=idx, column=4, value=str(total_faltas))
+            ws.cell(row=idx, column=5, value=str(a.nota1))
+            ws.cell(row=idx, column=6, value=str(a.nota2))
+            ws.cell(row=idx, column=7, value=str(media))
             
-            for col_c in range(1, 8):
-                ws.cell(row=idx, column=col_c).border = borda_fina
-                ws.cell(row=idx, column=col_c).font = Font(name="Arial", size=10)
-            
-        ws.column_dimensions['A'].width = 6
-        ws.column_dimensions['B'].width = 18
-        ws.column_dimensions['C'].width = 45
-        for col_l in ['D', 'E', 'F', 'G']:
-            ws.column_dimensions[col_l].width = 12
+        # Alinha colunas e dá espaçamento ideal para impressão
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = openpyxl.utils.get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
             
         output = BytesIO()
         wb.save(output)
