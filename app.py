@@ -137,3 +137,202 @@ HTML_COMPLETO = '''
                             <td><strong class="text-dark">{{ aluno.nome }}</strong><br><small class="text-muted">{{ aluno.matricula }}</small></td>
                             <td class="text-center text-danger fw-bold">{{ aluno.total_faltas }}</td>
                             <td class="text-center">
+                                <input type="number" step="0.1" min="0" max="10" name="nota1_{{ aluno.id }}" class="form-control form-control-sm input-nota text-primary" value="{{ aluno.nota1 }}">
+                            </td>
+                            <td class="text-center">
+                                <input type="number" step="0.1" min="0" max="10" name="nota2_{{ aluno.id }}" class="form-control form-control-sm input-nota text-primary" value="{{ aluno.nota2 }}">
+                            </td>
+                            <td class="text-center fw-bold {% if aluno.media >= 6.0 %}text-success{% else %}text-danger{% endif %}">
+                                {{ "%.1f"|format(aluno.media) }}
+                            </td>
+                            <td class="text-center">
+                                <div class="btn-group">
+                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="p_{{ aluno.id }}" value="P" {% if aluno.status_hoje == 'P' %}checked{% endif %}>
+                                    <label class="btn btn-xs btn-outline-success px-2 fw-bold" for="p_{{ aluno.id }}">P</label>
+                                    <input type="radio" class="btn-check" name="status_{{ aluno.id }}" id="f_{{ aluno.id }}" value="F" {% if aluno.status_hoje == 'F' %}checked{% endif %}>
+                                    <label class="btn btn-xs btn-outline-danger px-2 fw-bold" for="f_{{ aluno.id }}">F</label>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary fw-bold px-5 mt-3 shadow">💾 Gravar Chamada e Notas (Dia 16/06)</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
+'''
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_COMPLETO, tela='inicial', turmas=Turma.query.all())
+
+@app.route('/carregar-csv', methods=['POST'])
+def carregar_csv():
+    file = request.files.get('arquivo_csv')
+    if file:
+        try:
+            texto_bruto = file.read().decode('utf-8', errors='ignore')
+            linhas = texto_bruto.replace('\r', '\n').split('\n')
+            
+            escola_auto = "CIEP DOUTOR ULYSSES GUIMARAES"
+            turma_auto = "1017"
+            disciplina_auto = "DIÁRIO DE CLASSE"
+            
+            for l in lines[:5]:
+                if l and "CIEP" in l.upper() and "ANDRE" in l.upper():
+                    partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
+                    if len(partes) >= 3:
+                        escola_auto = partes[0]
+                        disciplina_auto = partes[-1]
+
+            nova_turma = Turma(escola=escola_auto, nome_turma=turma_auto, disciplina=disciplina_auto)
+            db.session.add(nova_turma)
+            db.session.commit()
+
+            contador_chamada = 1
+
+            for linha in linhas:
+                if not linha or not isinstance(linha, str):
+                    continue
+                linha_up = linha.upper()
+                
+                if "NUM_CHAMADA" in linha_up or "ANDRE CAMARGO" in linha_up or "CANCELADO" in linha_up:
+                    continue
+                
+                if "MATRICULADO" in linha_up:
+                    linha_limpa = linha.replace('"', '')
+                    partes = [p.strip() for p in re.split(r'[;,]', linha_limpa) if p.strip()]
+                    
+                    matricula = ""
+                    textos = []
+                    
+                    for p in partes:
+                        if p.isdigit() and len(p) >= 10:
+                            matricula = p
+                        elif len(p) > 5 and not any(c.isdigit() for c in p) and "MATRICULADO" not in p.upper() and "TRIMESTRE" not in p.upper():
+                            textos.append(p.upper())
+                    
+                    name_found = textos[0] if textos else ""
+                    
+                    if name_found and matricula:
+                        db.session.add(Aluno(
+                            num_chamada=str(contador_chamada),
+                            matricula=str(matricula),
+                            nome=str(name_found),
+                            situacao="MATRICULADO",
+                            turma_id=nova_turma.id
+                        ))
+                        contador_chamada += 1
+                        
+            db.session.commit()
+        except Exception as e:
+            print(f"Erro na importação: {e}")
+    return redirect(url_for('index'))
+
+@app.route('/chamada/<int:turma_id>')
+def chamada(turma_id):
+    turma = Turma.query.get_or_404(turma_id)
+    data_filtro = "2026-06-16"
+    alunos = Aluno.query.filter_by(turma_id=turma.id).all()
+    alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if (x.num_chamada and str(x.num_chamada).isdigit()) else 99)
+    
+    alunos_info = []
+    for a in alunos_ordenados:
+        reg = Presenca.query.filter_by(aluno_id=a.id, data=data_filtro).first()
+        status_hoje = reg.status if reg else 'P'
+        total_faltas = Presenca.query.filter_by(aluno_id=a.id, status='F').count()
+        media = (float(a.nota1 or 0) + float(a.nota2 or 0)) / 2
+        
+        alunos_info.append({
+            "id": a.id, "num_chamada": a.num_chamada, "matricula": a.matricula,
+            "nome": a.nome, "situacao": a.situacao, "status_hoje": status_hoje,
+            "total_faltas": total_faltas, "nota1": a.nota1, "nota2": a.nota2, "media": media
+        })
+    return render_template_string(HTML_COMPLETO, tela='chamada', turma=turma, alunos_info=alunos_info, data_atual=data_filtro)
+
+@app.route('/salvar-dados/<int:turma_id>', methods=['POST'])
+def salvar_dados(turma_id):
+    data_chamada = request.form.get('data_chamada', '2026-06-16')
+    alunos = Aluno.query.filter_by(turma_id=turma_id).all()
+    
+    for a in alunos:
+        n1 = request.form.get(f'nota1_{a.id}')
+        n2 = request.form.get(f'nota2_{a.id}')
+        try: a.nota1 = float(n1) if n1 else 0.0
+        except: a.nota1 = 0.0
+        try: a.nota2 = float(n2) if n2 else 0.0
+        except: a.nota2 = 0.0
+        
+        status = request.form.get(f'status_{a.id}', 'P')
+        
+        aluno_id_num = int(a.id)
+        reg = db.session.query(Presenca).filter(Presenca.aluno_id == aluno_id_num, Presenca.data == str(data_chamada)).first()
+        if reg:
+            reg.status = str(status)
+        else:
+            db.session.add(Presenca(data=str(data_chamada), status=str(status), aluno_id=aluno_id_num))
+            
+    db.session.commit()
+    return redirect(url_for('chamada', turma_id=turma_id))
+
+@app.route('/excluir-turma/<int:turma_id>')
+def excluir_turma(turma_id):
+    turma = Turma.query.get(turma_id)
+    if r:= turma:
+        db.session.delete(r)
+        db.session.commit()
+    return redirect(url_for('index'))
+
+@app.route('/baixar-excel/<int:turma_id>')
+def baixar_excel(turma_id):
+    try:
+        turma = Turma.query.get_or_404(turma_id)
+        alunos = Aluno.query.filter_by(turma_id=turma.id).all()
+        alunos_ordenados = sorted(alunos, key=lambda x: int(x.num_chamada) if (x.num_chamada and str(x.num_chamada).isdigit()) else 99)
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Turma {turma.nome_turma}"
+        
+        ws.views.sheetView[0].showGridLines = True
+        
+        headers = ["Nº", "Matrícula", "Nome Completo do Aluno", "Total Faltas", "Nota 1", "Nota 2", "Média Final"]
+        for col_idx, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=h)
+            cell.font = openpyxl.styles.Font(bold=True)
+        
+        for idx, a in enumerate(alunos_ordenados, 2):
+            total_faltas = Presenca.query.filter_by(aluno_id=a.id, status='F').count()
+            media = (float(a.nota1 or 0) + float(a.nota2 or 0)) / 2
+            
+            ws.cell(row=idx, column=1, value=str(a.num_chamada) if a.num_chamada else str(idx-1))
+            ws.cell(row=idx, column=2, value=str(a.matricula) if a.matricula else "")
+            ws.cell(row=idx, column=3, value=str(a.nome) if a.nome else "")
+            ws.cell(row=idx, column=4, value=str(total_faltas))
+            ws.cell(row=idx, column=5, value=str(a.nota1))
+            ws.cell(row=idx, column=6, value=str(a.nota2))
+            ws.cell(row=idx, column=7, value=str(media))
+            
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = openpyxl.utils.get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+            
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True, download_name=f"Diario_Fechamento_Turma_{turma.nome_turma}.xlsx")
+    except Exception as e:
+        return f"Erro ao gerar planilha: {str(e)}", 500
+
+if __name__ == '__main__':
+    # Configuração dinâmica para escutar a porta exigida pelo Render imediatamente
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
