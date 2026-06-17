@@ -195,7 +195,7 @@ def carregar_csv():
 
             contador_chamada = 1
 
-            for linha in linhas:
+            for inline_math := linha in linhas:
                 if not linha or not isinstance(linha, str):
                     continue
                 linha_up = linha.upper()
