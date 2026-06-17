@@ -9,8 +9,7 @@ import openpyxl
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Banco definitivo purificado
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_final_definitivo.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_producao_estavel.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -183,7 +182,7 @@ def carregar_csv():
             turma_auto = "1017"
             disciplina_auto = "DIÁRIO DE CLASSE"
             
-            for l in lines[:5]:
+            for l in linhas[:5]:
                 if l and "CIEP" in l.upper() and "ANDRE" in l.upper():
                     partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
                     if len(partes) >= 3:
@@ -333,6 +332,5 @@ def baixar_excel(turma_id):
         return f"Erro ao gerar planilha: {str(e)}", 500
 
 if __name__ == '__main__':
-    # Configuração dinâmica para escutar a porta exigida pelo Render imediatamente
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
