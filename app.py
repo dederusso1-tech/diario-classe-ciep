@@ -9,8 +9,8 @@ import openpyxl
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Mudamos o nome do arquivo para forçar o Render a criar uma estrutura nova e limpa
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_ciep_final_producao.db')
+# Nome novo para garantir um banco de dados totalmente zerado e estável no Render
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'diario_final_definitivo.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -183,7 +183,7 @@ def carregar_csv():
             turma_auto = "1017"
             disciplina_auto = "DIÁRIO DE CLASSE"
             
-            for l in linhas[:5]:
+            for l in lines[:5]:
                 if l and "CIEP" in l.upper() and "ANDRE" in l.upper():
                     partes = [p.replace('"', '').strip() for p in re.split(r'[;,]', l) if p.strip()]
                     if len(partes) >= 3:
@@ -270,13 +270,13 @@ def salvar_dados(turma_id):
         
         status = request.form.get(f'status_{a.id}', 'P')
         
-        # SISTEMA DE ATUALIZAÇÃO 100% LIMPO E DIRETO:
-        reg = Presenca.query.filter_by(aluno_id=a.id, data=data_chamada).first()
+        # CONSULTA DIRETA POR ID NUMÉRICO ISOLADO (PREVINE INVALIDREQUESTERROR)
+        aluno_id_num = int(a.id)
+        reg = db.session.query(Presenca).filter(Presenca.aluno_id == aluno_id_num, Presenca.data == str(data_chamada)).first()
         if reg:
             reg.status = str(status)
         else:
-            nova_p = Presenca(data=data_chamada, status=str(status), aluno_id=a.id)
-            db.session.add(nova_p)
+            db.session.add(Presenca(data=str(data_chamada), status=str(status), aluno_id=aluno_id_num))
             
     db.session.commit()
     return redirect(url_for('chamada', turma_id=turma_id))
